@@ -58,7 +58,7 @@ class Operator {
   };
 
   private currentFreq: number = 440;
-  private isModulator: boolean = false;
+  public isModulator: boolean = false;
 
   constructor(ctx: AudioContext, isModulator: boolean = false) {
     this.ctx = ctx;
@@ -318,7 +318,10 @@ export class FmEngine {
       this.ops.forEach(op => lfoGain.connect(op.osc.frequency));
     } else if (params.dest === 'volume') {
       lfoGain.gain.setValueAtTime(params.amount * 0.5, time); // Volume mod depth
-      lfoGain.connect(this.masterGain.gain);
+      // Connect to all carriers' envGain so it gets multiplied by masterGain envelope
+      this.ops.forEach(op => {
+        if (!op.isModulator) lfoGain.connect(op.envGain.gain);
+      });
     } else {
       lfoGain.gain.setValueAtTime(params.amount * 2.0, time); // Level mod depth
       if (params.dest === 'mod1') lfoGain.connect(this.ops[0].modIndexGain.gain);

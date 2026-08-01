@@ -256,7 +256,7 @@ export class MacroMapper {
 
       case 'Sub Bass':
         p.algorithm = 3;
-        p.operators[0] = { ...defaultOp(), level: 1.0 };
+        p.operators[0] = { ...defaultOp(), ratio: 0.25, level: 1.0 }; // 2 octaves down
         p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.0 };
         p.operators[2] = { ...defaultOp(), ratio: 1.0, level: 0.0 };
         p.operators[3] = { ...defaultOp(), ratio: 2.0, level: 0.0 };
@@ -278,9 +278,9 @@ export class MacroMapper {
 
       case 'Pad':
         p.algorithm = 2;
-        p.operators[0] = { ...defaultOp(), level: 0.8 };
+        p.operators[0] = { ...defaultOp(), level: 1.0 }; // Max carrier level
         p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.05 };
-        p.operators[2] = { ...defaultOp(), ratio: 1.0, level: 0.6 };
+        p.operators[2] = { ...defaultOp(), ratio: 1.0, level: 1.0 }; // Max carrier level
         p.operators[3] = { ...defaultOp(), ratio: 2.0, level: 0.0 };
         
         p.env1 = { attack: 0.8, hold: 999, decay: 2.5, amount: 1.0, dest: 'none' };
