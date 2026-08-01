@@ -39,9 +39,10 @@ svg g,svg path{transform-box:fill-box;transform-origin:center}
 #app {
   display: flex;
   justify-content: center;
-  align-items: flex-start;
-  min-height: 100vh;
-  padding: 40px 20px;
+  align-items: center;
+  height: 100vh;
+  padding: 20px;
+  overflow: hidden;
 }
 
 .desktop-view { display: flex; }
@@ -53,5 +54,9 @@ svg g,svg path{transform-box:fill-box;transform-origin:center}
   
   #app {
     padding: 20px 10px;
+    height: auto;
+    min-height: 100vh;
+    align-items: flex-start;
+    overflow: visible;
   }
 }

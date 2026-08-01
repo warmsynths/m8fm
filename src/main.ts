@@ -198,7 +198,7 @@ export class FmStudio extends LitElement {
     return html`
       <div id="app">
         <!-- Desktop Layout -->
-        <div class="desktop-view" style="width:820px;flex:none;background:#e2e0dc;border:1px solid rgba(0,0,0,.12);border-radius:7px;overflow:hidden;flex-direction:column">
+        <div class="desktop-view" style="width:820px;flex:none;background:#e2e0dc;border:1px solid rgba(0,0,0,.12);border-radius:7px;overflow:hidden;flex-direction:column;max-height:100%">
           
           <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid rgba(0,0,0,.12)">
             <div style="display:flex;align-items:center;gap:9px">
@@ -257,8 +257,8 @@ export class FmStudio extends LitElement {
           </div>
           ` : nothing}
 
-          <div style="display:flex;${this.dx7Patches.length > 0 ? 'opacity:0.3;pointer-events:none' : ''}">
-            <div style="width:186px;flex:none;border-right:1px solid rgba(0,0,0,.12);padding:14px 12px;display:flex;flex-direction:column;gap:7px">
+          <div style="display:flex;flex:1;min-height:0;${this.dx7Patches.length > 0 ? 'opacity:0.3;pointer-events:none' : ''}">
+            <div style="width:186px;flex:none;border-right:1px solid rgba(0,0,0,.12);padding:14px 12px;display:flex;flex-direction:column;gap:7px;overflow-y:auto">
               <div style="font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.4);margin-bottom:2px">MACHINE</div>
               ${MACHINES.map((m, idx) => {
                 const isSel = idx === mi;
@@ -276,24 +276,24 @@ export class FmStudio extends LitElement {
                 `;
               })}
               
-              <div style="font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.4);margin:14px 0 2px">PRESET</div>
-              ${mach.presets.map((pr, idx) => {
-                const isSel = idx === pi;
-                const bg = isSel ? '#101010' : 'transparent';
-                const fg = isSel ? '#fff' : 'rgba(0,0,0,.55)';
-                const dim = isSel ? 'rgba(255,255,255,.45)' : 'rgba(0,0,0,.3)';
-                const border = isSel ? '#101010' : 'rgba(0,0,0,.16)';
-                return html`
-                  <button type="button" @click=${() => this.selectPreset(idx)} style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;border:1px solid ${border};background:${bg};border-radius:4px;cursor:pointer">
-                    <div style="font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.1em;color:${fg}">${pr[0]}</div>
-                    <div style="font:400 9.5px 'JetBrains Mono',monospace;color:${dim}">0${idx + 1}</div>
-                  </button>
-                `;
-              })}
+
             </div>
 
-            <div style="flex:1;padding:16px 18px 18px">
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div style="flex:1;padding:16px 18px 18px;display:flex;flex-direction:column;gap:16px;min-height:0;overflow-y:auto">
+              
+              <div style="display:flex;gap:6px;flex-wrap:wrap;flex:none">
+                ${mach.presets.map((pr, idx) => {
+                  const isSel = idx === pi;
+                  const bg = isSel ? '#101010' : 'transparent';
+                  const fg = isSel ? '#fff' : 'rgba(0,0,0,.55)';
+                  const border = isSel ? '#101010' : 'rgba(0,0,0,.16)';
+                  return html`
+                    <button type="button" @click=${() => this.selectPreset(idx)} style="border:1px solid ${border};background:${bg};padding:6px 12px;border-radius:4px;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.08em;color:${fg};white-space:nowrap;transition:all 0.15s ease">${pr[0]}</button>
+                  `;
+                })}
+              </div>
+
+              <div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:12px;flex:1;min-height:150px">
                 ${mach.mods.map((m, i) => {
                   const v = vals[i];
                   const pct = v.toFixed(1) + '%';
@@ -301,7 +301,7 @@ export class FmStudio extends LitElement {
                   const fmLabel = (1 + Math.round(v / 100 * 7)) + '.' + String(Math.round(v * 2) % 1000).padStart(3, '0');
                   
                   return html`
-                    <div @pointerdown=${(e: PointerEvent) => this.handleDown(e, i, false)} @wheel=${(e: WheelEvent) => this.handleWheel(e, i)} style="display:flex;height:150px;border-radius:5px;overflow:hidden;border:1px solid rgba(0,0,0,.18);cursor:ns-resize;touch-action:none;user-select:none">
+                    <div @pointerdown=${(e: PointerEvent) => this.handleDown(e, i, false)} @wheel=${(e: WheelEvent) => this.handleWheel(e, i)} style="display:flex;border-radius:5px;overflow:hidden;border:1px solid rgba(0,0,0,.18);cursor:ns-resize;touch-action:none;user-select:none;min-height:75px">
                       <div style="flex:1;background:#17170f;padding:13px;display:flex;flex-direction:column;justify-content:space-between">
                         <div>
                           <div style="font:500 11.5px/1.2 'JetBrains Mono',monospace;letter-spacing:.06em;color:#dcd9c6;white-space:pre-line">${m[0]}</div>
@@ -323,12 +323,12 @@ export class FmStudio extends LitElement {
                 })}
               </div>
               
-              <button type="button" @click=${() => this.adv = !this.adv} style="margin-top:14px;background:none;border:none;padding:0;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.5);display:flex;align-items:center;gap:7px">
+              <button type="button" @click=${() => this.adv = !this.adv} style="flex:none;background:none;border:none;padding:0;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.5);display:flex;align-items:center;gap:7px">
                 <span style="display:inline-block;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;transform:rotate(${this.adv ? '90deg' : '0deg'})"></span>FM PARAMETERS
               </button>
               
               ${this.adv ? html`
-                <div style="margin-top:11px;padding:13px 15px;background:#17170f;border-radius:5px;display:flex;gap:24px">
+                <div style="flex:none;padding:13px 15px;background:#17170f;border-radius:5px;display:flex;gap:24px">
                   ${FM_NAMES.map((n, i) => {
                     const val = i === 0 ? 'FM' + (1 + (mi % 4)) : ((vals[i % vals.length] * (0.7 + i * 0.12)) % 100).toFixed(1);
                     return html`
