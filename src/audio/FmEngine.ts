@@ -9,6 +9,12 @@ export interface OperatorParams {
   pitchEnvDecay: number;
 }
 
+export interface FmParams {
+  algorithm: number;
+  feedback: number;
+  operators: [OperatorParams, OperatorParams, OperatorParams, OperatorParams];
+}
+
 class Operator {
   public osc: OscillatorNode;
   public envGain: GainNode;
@@ -235,5 +241,21 @@ export class FmEngine {
     this.ops.forEach(op => {
       op.triggerNoteOff(time);
     });
+  }
+
+  public applyParams(params: FmParams) {
+    this.setAlgorithm(params.algorithm);
+    this.setFeedback(params.feedback);
+    for (let i = 0; i < 4; i++) {
+      const op = params.operators[i];
+      this.setOperatorParam(i, 'ratio', op.ratio);
+      this.setOperatorParam(i, 'level', op.level);
+      this.setOperatorParam(i, 'attack', op.attack);
+      this.setOperatorParam(i, 'decay', op.decay);
+      this.setOperatorParam(i, 'sustain', op.sustain);
+      this.setOperatorParam(i, 'release', op.release);
+      this.setOperatorParam(i, 'pitchEnvDepth', op.pitchEnvDepth);
+      this.setOperatorParam(i, 'pitchEnvDecay', op.pitchEnvDecay);
+    }
   }
 }

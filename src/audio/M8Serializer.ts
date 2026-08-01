@@ -1,4 +1,4 @@
-import type { FmParams } from './MacroMapper';
+import type { FmParams } from './FmEngine';
 // @ts-ignore
 import { dumpM8File } from 'm8-js';
 // @ts-ignore

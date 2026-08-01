@@ -3,62 +3,11 @@ import { customElement, state } from 'lit/decorators.js';
 import { styleMap } from 'lit/directives/style-map.js';
 
 import './style.css';
-import { FmEngine } from './audio/FmEngine';
-import { MacroMapper, type AnchorName } from './audio/MacroMapper';
-import { M8Serializer } from './audio/M8Serializer';
+import { AudioController } from './audio/AudioController';
+import { type AnchorName } from './audio/MacroMapper';
 import { MACHINES, FM_NAMES } from './ui/MachineData';
 
-const engine = new FmEngine();
-const mapper = new MacroMapper();
-const serializer = new M8Serializer();
-
-let isInitialized = false;
-
-function initAudio() {
-  if (isInitialized) return;
-  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-  const ctx = new AudioContextClass();
-  engine.init(ctx);
-  isInitialized = true;
-  console.log('Audio initialized!');
-}
-
-function applyParamsToEngine() {
-  if (!isInitialized) return;
-  const params = mapper.getComputedFmParams();
-  engine.setAlgorithm(params.algorithm);
-  engine.setFeedback(params.feedback);
-  for (let i = 0; i < 4; i++) {
-    engine.setOperatorParam(i, 'ratio', params.operators[i].ratio);
-    engine.setOperatorParam(i, 'level', params.operators[i].level);
-    engine.setOperatorParam(i, 'attack', params.operators[i].attack);
-    engine.setOperatorParam(i, 'decay', params.operators[i].decay);
-    engine.setOperatorParam(i, 'sustain', params.operators[i].sustain);
-    engine.setOperatorParam(i, 'release', params.operators[i].release);
-    engine.setOperatorParam(i, 'pitchEnvDepth', params.operators[i].pitchEnvDepth);
-    engine.setOperatorParam(i, 'pitchEnvDecay', params.operators[i].pitchEnvDecay);
-  }
-}
-
-// Audio key mapping
-const keyMap: Record<string, number> = {
-  'a': 261.63, 's': 293.66, 'd': 329.63, 'f': 349.23,
-  'g': 392.00, 'h': 440.00, 'j': 493.88, 'k': 523.25,
-};
-
-window.addEventListener('keydown', (e) => {
-  if (!isInitialized) initAudio();
-  const key = e.key.toLowerCase();
-  if (keyMap[key] && !e.repeat) {
-    engine.triggerNoteOn(keyMap[key], 1.0);
-  }
-});
-
-window.addEventListener('keyup', (e) => {
-  if (keyMap[e.key.toLowerCase()]) {
-    engine.triggerNoteOff();
-  }
-});
+const audio = new AudioController();
 
 function getVars(v: number) {
   const u = v / 100;
@@ -107,33 +56,28 @@ export class FmStudio extends LitElement {
     this.v = { ...this.v, [key]: nv };
     this.dirty = true;
     
-    if (!isInitialized) initAudio();
     const m = MACHINES[this.sel];
     const macroName = m.mods[i][0].replace('\n', ' ');
-    mapper.setMacro(macroName, nv / 100);
-    applyParamsToEngine();
+    audio.setMacro(macroName, nv / 100);
   }
 
   selectMachine(idx: number) {
-    if (!isInitialized) initAudio();
     this.sel = idx;
     this.preset = 0;
     this.v = {};
     this.dirty = false;
     
     const m = MACHINES[idx];
-    mapper.loadAnchor(m.name as AnchorName);
+    audio.loadAnchor(m.name as AnchorName);
     
     for (let i = 0; i < m.mods.length; i++) {
       const val = this.getVal(idx, i);
       const macroName = m.mods[i][0].replace('\n', ' ');
-      mapper.setMacro(macroName, val / 100);
+      audio.setMacro(macroName, val / 100);
     }
-    applyParamsToEngine();
   }
 
   selectPreset(idx: number) {
-    if (!isInitialized) initAudio();
     this.preset = idx;
     this.v = {};
     this.dirty = false;
@@ -142,13 +86,12 @@ export class FmStudio extends LitElement {
     for (let i = 0; i < m.mods.length; i++) {
       const val = this.getVal(this.sel, i);
       const macroName = m.mods[i][0].replace('\n', ' ');
-      mapper.setMacro(macroName, val / 100);
+      audio.setMacro(macroName, val / 100);
     }
-    applyParamsToEngine();
   }
 
   downloadM8Instrument() {
-    serializer.downloadM8Instrument('Patch.m8i', mapper.getComputedFmParams());
+    audio.exportPatch('Patch.m8i');
     console.log('Exported .m8i patch');
   }
 

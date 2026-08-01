@@ -1,10 +1,4 @@
-import type { OperatorParams } from './FmEngine';
-
-export interface FmParams {
-  algorithm: number;
-  feedback: number;
-  operators: [OperatorParams, OperatorParams, OperatorParams, OperatorParams];
-}
+import type { OperatorParams, FmParams } from './FmEngine';
 
 export type AnchorName = 'Electric Piano' | 'Sub Bass' | 'Mallet' | 'Pad' | 'Digital Glitch' | 'Vintage Lead';
 
