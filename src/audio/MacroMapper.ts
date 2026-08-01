@@ -1,4 +1,4 @@
-import type { FmParams, OperatorParams } from './FmEngine';
+import type { FmParams, OperatorParams, EnvParams, LfoParams } from './FmEngine';
 
 export type AnchorName = 'Electric Piano' | 'Sub Bass' | 'Mallet' | 'Pad' | 'Digital Glitch' | 'Vintage Lead';
 
@@ -26,7 +26,6 @@ export class MacroMapper {
   public loadAnchor(anchorName: AnchorName) {
     this.currentAnchor = anchorName;
     this.baseParams = this.getAnchorParams(anchorName);
-    // Reset macros on machine switch
     this.macroState = {};
     this.updateParams();
   }
@@ -67,66 +66,65 @@ export class MacroMapper {
     this.currentParams = params;
   }
 
-  // --- DSP Math Transformations (Restricted to Musical Ranges) --- //
-
   private getMacroVal(name: string): number {
     return this.macroState[name] || 0.0;
   }
 
   private applyElectricPianoMath(params: FmParams) {
     const tine = this.getMacroVal('Tine Material');
-    // Musical integer/simple fractional ratios
     const ratios = [2.0, 3.0, 4.0, 5.0, 7.0, 14.0];
     const tineIndex = Math.min(ratios.length - 1, Math.floor(tine * ratios.length));
     params.operators[3].ratio = ratios[tineIndex];
 
     const strike = this.getMacroVal('Strike Force');
-    // Gentle brightness increase. Mod levels kept very low (<0.3) to avoid harsh jaggy saw waves.
-    params.operators[1].level += strike * 0.15; 
-    params.operators[3].level += strike * 0.15;
-    // Faster attack on hard strikes
-    params.operators[1].attack = Math.max(0.005, 0.015 - strike * 0.01);
-    params.operators[3].attack = Math.max(0.005, 0.015 - strike * 0.01);
+    if (params.env2) {
+      params.env2.amount = 0.05 + strike * 0.2;
+      params.env2.decay = 0.3 - strike * 0.1;
+    }
 
     const bark = this.getMacroVal('Bark');
-    // Very gentle feedback for warmth, not distortion
     params.feedback += bark * 0.15;
     params.operators[1].level += bark * 0.1;
+
+    const tremolo = this.getMacroVal('Tremolo Depth');
+    if (params.lfo1) {
+      params.lfo1.dest = 'volume';
+      params.lfo1.amount = tremolo * 0.8;
+      params.lfo1.freq = 4.0 + tremolo * 4.0;
+    }
   }
 
   private applySubBassMath(params: FmParams) {
     const weight = this.getMacroVal('Sub Weight');
-    // Gently thickens the tone without turning into a noisy buzz
     params.operators[1].level += weight * 0.15;
-    params.operators[1].ratio = weight > 0.5 ? 0.5 : 1.0; 
-
-    const pitchSnap = this.getMacroVal('Pitch Snap');
-    if (pitchSnap > 0) {
-      params.operators[0].pitchEnvDepth = pitchSnap * 0.8; // Musical pitch drop
-      params.operators[0].pitchEnvDecay = 0.02 + (1.0 - pitchSnap) * 0.1;
-    }
 
     const growl = this.getMacroVal('Top-End Growl');
     if (growl > 0) {
-      // Warm, harmonic saturation using integer ratios
-      params.operators[3].ratio = 2.0 + Math.floor(growl * 2.0); // 2, 3, or 4
-      params.operators[3].level += growl * 0.15; // Max 0.15 mod level is sweet
-      params.feedback += growl * 0.05; // Extremely gentle feedback
+      params.operators[3].ratio = 2.0 + Math.floor(growl * 2.0);
+      params.operators[3].level += growl * 0.15;
+      params.feedback += growl * 0.05;
     }
 
+    const pitchSnap = this.getMacroVal('Pitch Snap');
     const boom = this.getMacroVal('Boom');
-    if (boom > 0) {
-      // Adds a thumpy envelope to Op3 for classic 808 transient
-      params.operators[2].level += boom * 0.3; // Gentle thump
-      params.operators[2].ratio = 1.0;
-      params.operators[2].attack = 0.005;
-      params.operators[2].decay = 0.02 + boom * 0.08;
+    
+    if (params.env2) {
+      if (pitchSnap > 0) {
+        params.env2.dest = 'pitch';
+        params.env2.amount = pitchSnap * 0.8;
+        params.env2.decay = 0.02 + (1.0 - pitchSnap) * 0.1;
+      } else if (boom > 0) {
+        params.env2.dest = 'mod3';
+        params.env2.amount = boom * 0.3;
+        params.env2.decay = 0.02 + boom * 0.08;
+      } else {
+        params.env2.amount = 0;
+      }
     }
   }
 
   private applyMalletMath(params: FmParams) {
     const focus = this.getMacroVal('Harmonic Focus');
-    // Stick strictly to musical integer and half-integer ratios
     if (focus < 0.33) {
       params.operators[1].ratio = 2.0;
       params.operators[2].ratio = 3.0;
@@ -139,47 +137,40 @@ export class MacroMapper {
     }
 
     const dampening = this.getMacroVal('Dampening');
-    // Smooth decay scaling
-    for (let i = 0; i < 4; i++) {
-      params.operators[i].decay *= (0.2 + dampening * 2.0);
-      params.operators[i].release *= (0.2 + dampening * 2.0);
+    if (params.env1) {
+      params.env1.decay *= (0.2 + (1.0 - dampening) * 0.8);
+    }
+    if (params.env2) {
+      params.env2.decay *= (0.2 + (1.0 - dampening) * 0.8);
     }
 
     const impact = this.getMacroVal('Impact Noise');
-    if (impact > 0) {
-      params.operators[3].attack = 0.005;
-      params.operators[3].decay = 0.02; // Very short
-      params.operators[3].sustain = 0.0;
-      params.operators[3].level += impact * 0.15; // Kept very low to stay musical
-      params.operators[3].ratio = 15.0; 
+    if (params.env2) {
+      params.env2.amount = impact * 0.15;
     }
   }
 
   private applyPadMath(params: FmParams) {
     const wash = this.getMacroVal('Wash');
-    const attackTime = 0.1 + (wash * 2.9); // 0.1s to 3.0s
-    for (let i = 0; i < 4; i++) {
-      params.operators[i].attack = attackTime * (1.0 + i * 0.1); 
-    }
+    const attackTime = 0.1 + (wash * 2.9);
+    if (params.env1) params.env1.attack = attackTime;
+    if (params.env2) params.env2.attack = attackTime * 1.5;
 
     const shimmer = this.getMacroVal('Shimmer');
-    if (shimmer > 0) {
-      // High harmonic but extremely soft level
-      params.operators[3].ratio = shimmer > 0.5 ? 8.0 : 4.0;
-      params.operators[3].level += shimmer * 0.15; // Kept very low to avoid harshness
-      params.operators[3].attack += shimmer * 1.5;
+    params.operators[3].ratio = shimmer > 0.5 ? 8.0 : 4.0;
+    if (params.env2) {
+      params.env2.amount = shimmer * 0.15;
     }
 
     const chorus = this.getMacroVal('Chorus');
-    if (chorus > 0) {
-      // Musical detune spread
-      params.operators[2].ratio += 0.005 * chorus; 
-      params.operators[3].ratio += 0.01 * chorus; 
+    if (params.lfo1 && chorus > 0) {
+      params.lfo1.dest = 'pitch';
+      params.lfo1.amount = chorus * 0.01;
+      params.lfo1.freq = 0.5 + chorus * 2.0;
     }
 
     const hollow = this.getMacroVal('Hollow');
     if (hollow > 0) {
-      // Smoothly crossfade pair 1 to a 2.0 ratio (square-ish)
       params.operators[1].ratio = 1.0 + hollow * 1.0; 
       params.operators[1].level += hollow * 0.1; 
       params.operators[0].level = 0.8 - hollow * 0.2;
@@ -188,109 +179,133 @@ export class MacroMapper {
 
   private applyDigitalGlitchMath(params: FmParams) {
     const dirt = this.getMacroVal('Digital Dirt');
-    params.feedback = dirt * 0.4; // Max 0.4 to prevent absolute noise death
+    params.feedback = dirt * 0.4;
 
     const zap = this.getMacroVal('Laser Zap');
-    if (zap > 0) {
-      for (let i = 0; i < 4; i++) {
-        params.operators[i].pitchEnvDepth = zap * 4.0;
-        params.operators[i].pitchEnvDecay = 0.05 + ((1.0 - zap) * 0.2);
-      }
+    if (params.env2) {
+      params.env2.amount = zap * 4.0;
+      params.env2.decay = 0.05 + ((1.0 - zap) * 0.2);
     }
 
     const pw = this.getMacroVal('Pulse Width');
-    const pwRatios = [1.0, 2.0, 3.0, 4.0]; // Musical integers
-    const pwIndex = Math.min(pwRatios.length - 1, Math.floor(pw * pwRatios.length));
-    params.operators[1].ratio = pwRatios[pwIndex];
+    if (params.lfo1 && pw > 0) {
+      params.lfo1.dest = 'mod1';
+      params.lfo1.amount = pw * 0.5;
+      params.lfo1.freq = 1.0 + pw * 10.0;
+    }
   }
 
   private applyVintageLeadMath(params: FmParams) {
     const timbre = this.getMacroVal('Timbre');
-    params.feedback = timbre * 0.2; // Warmth, not noise
+    
+    if (timbre < 0.5) {
+      params.operators[1].ratio = 1.0;
+      params.feedback = (timbre * 2) * 0.15;
+    } else {
+      const squareBlend = (timbre - 0.5) * 2;
+      params.operators[1].ratio = 1.0 + squareBlend * 1.0;
+      params.feedback = 0.15 - (squareBlend * 0.15);
+    }
 
     const cutoff = this.getMacroVal('Filter Cutoff');
-    params.operators[1].level = cutoff * 0.3; // Max 0.3 mod level
-
     const filterEnv = this.getMacroVal('Filter Envelope');
-    params.operators[1].decay = 0.01 + (filterEnv * 1.99);
+
+    params.operators[1].level = cutoff * 0.25;
+    
+    if (params.env2) {
+      params.env2.amount = filterEnv * 0.2;
+      params.env2.decay = 0.01 + filterEnv * 0.8;
+      params.env2.hold = 0; 
+    }
 
     const slop = this.getMacroVal('Analog Slop');
-    if (slop > 0) {
-      params.operators[0].ratio += slop * 0.01;
-      params.operators[1].ratio -= slop * 0.02;
+    if (params.lfo1 && slop > 0) {
+      params.lfo1.dest = 'pitch';
+      params.lfo1.amount = slop * 0.02;
+      params.lfo1.freq = 0.1 + slop * 1.5;
+      params.lfo1.shape = 'sine';
     }
   }
 
   private getAnchorParams(anchor: AnchorName): FmParams {
-    const defaultOp = (): OperatorParams => ({
-      ratio: 1, level: 0.0, attack: 0.01, decay: 0.1, sustain: 0.0, release: 0.1, pitchEnvDepth: 0, pitchEnvDecay: 0
-    });
+    const defaultOp = (): OperatorParams => ({ ratio: 1, level: 0.0 });
+    const defaultEnv = (): EnvParams => ({ attack: 0.01, hold: 999, decay: 0.1, amount: 1.0, dest: 'none' });
+    const defaultLfo = (): LfoParams => ({ shape: 'sine', freq: 1.0, amount: 0.0, dest: 'none' });
 
     const p: FmParams = {
       algorithm: 1,
       feedback: 0.0,
-      operators: [defaultOp(), defaultOp(), defaultOp(), defaultOp()]
+      operators: [defaultOp(), defaultOp(), defaultOp(), defaultOp()],
+      env1: defaultEnv(),
+      env2: defaultEnv(),
+      lfo1: defaultLfo(),
+      lfo2: defaultLfo()
     };
 
     switch (anchor) {
       case 'Electric Piano':
-        p.algorithm = 2; // (Op4 -> Op3) + (Op2 -> Op1) -> Out
-        p.feedback = 0.0;
-        // Body (Pair 1)
-        p.operators[0] = { ...defaultOp(), level: 1.0, attack: 0.01, decay: 2.0, sustain: 0.4, release: 0.8 };
-        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.05, attack: 0.01, decay: 1.5, sustain: 0.1, release: 0.8 };
-        // Tine (Pair 2)
-        p.operators[2] = { ...defaultOp(), level: 0.5, attack: 0.01, decay: 2.0, sustain: 0.2, release: 0.8 };
-        p.operators[3] = { ...defaultOp(), ratio: 14.0, level: 0.05, attack: 0.01, decay: 0.3, sustain: 0.0, release: 0.8 };
+        p.algorithm = 2;
+        p.operators[0] = { ...defaultOp(), level: 1.0 };
+        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.05 };
+        p.operators[2] = { ...defaultOp(), level: 0.5 };
+        p.operators[3] = { ...defaultOp(), ratio: 14.0, level: 0.0 };
+        
+        p.env1 = { attack: 0.01, hold: 0, decay: 2.0, amount: 1.0, dest: 'none' };
+        p.env2 = { attack: 0.01, hold: 0, decay: 0.3, amount: 0.05, dest: 'mod4' };
         break;
 
       case 'Sub Bass':
-        p.algorithm = 3; // (Op4+Op3+Op2) -> Op1
-        p.feedback = 0.0;
-        // Carrier (Fundamental)
-        p.operators[0] = { ...defaultOp(), level: 1.0, attack: 0.01, decay: 1.0, sustain: 1.0, release: 0.4 };
-        // Mod 1 (Sub/Thickener)
-        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.0, attack: 0.01, decay: 1.0, sustain: 0.8, release: 0.4 };
-        // Mod 2 (Boom/Punch)
-        p.operators[2] = { ...defaultOp(), ratio: 1.0, level: 0.0, attack: 0.005, decay: 0.1, sustain: 0.0, release: 0.1 };
-        // Mod 3 (Growl/Top-end)
-        p.operators[3] = { ...defaultOp(), ratio: 2.0, level: 0.0, attack: 0.05, decay: 0.5, sustain: 0.2, release: 0.2 };
+        p.algorithm = 3;
+        p.operators[0] = { ...defaultOp(), level: 1.0 };
+        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.0 };
+        p.operators[2] = { ...defaultOp(), ratio: 1.0, level: 0.0 };
+        p.operators[3] = { ...defaultOp(), ratio: 2.0, level: 0.0 };
+        
+        p.env1 = { attack: 0.01, hold: 999, decay: 0.4, amount: 1.0, dest: 'none' };
+        p.env2 = { attack: 0.01, hold: 0, decay: 0.1, amount: 0.0, dest: 'pitch' };
         break;
 
       case 'Mallet':
-        p.algorithm = 3; // (Op4+Op3+Op2) -> Op1
-        p.feedback = 0.0;
-        p.operators[0] = { ...defaultOp(), level: 1.0, attack: 0.005, decay: 1.0, sustain: 0.0, release: 0.5 };
-        p.operators[1] = { ...defaultOp(), ratio: 2.0, level: 0.1, attack: 0.005, decay: 0.5, sustain: 0.0, release: 0.4 };
-        p.operators[2] = { ...defaultOp(), ratio: 3.0, level: 0.05, attack: 0.005, decay: 0.3, sustain: 0.0, release: 0.2 };
-        p.operators[3] = { ...defaultOp(), ratio: 5.0, level: 0.05, attack: 0.005, decay: 0.1, sustain: 0.0, release: 0.1 };
+        p.algorithm = 3;
+        p.operators[0] = { ...defaultOp(), level: 1.0 };
+        p.operators[1] = { ...defaultOp(), ratio: 2.0, level: 0.1 };
+        p.operators[2] = { ...defaultOp(), ratio: 3.0, level: 0.05 };
+        p.operators[3] = { ...defaultOp(), ratio: 15.0, level: 0.0 };
+        
+        p.env1 = { attack: 0.005, hold: 0, decay: 1.0, amount: 1.0, dest: 'none' };
+        p.env2 = { attack: 0.005, hold: 0, decay: 0.05, amount: 0.0, dest: 'mod4' };
         break;
 
       case 'Pad':
-        p.algorithm = 2; // (Op4->Op3) + (Op2->Op1) -> Out
-        p.feedback = 0.0;
-        // Pair 1 (Warm body)
-        p.operators[0] = { ...defaultOp(), level: 0.8, attack: 0.8, decay: 3.0, sustain: 0.8, release: 2.5 };
-        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.05, attack: 1.0, decay: 3.0, sustain: 0.7, release: 2.5 };
-        // Pair 2 (Shimmer layer)
-        p.operators[2] = { ...defaultOp(), ratio: 1.0, level: 0.6, attack: 1.2, decay: 3.0, sustain: 0.6, release: 2.5 };
-        p.operators[3] = { ...defaultOp(), ratio: 2.0, level: 0.02, attack: 1.5, decay: 3.0, sustain: 0.5, release: 2.5 };
+        p.algorithm = 2;
+        p.operators[0] = { ...defaultOp(), level: 0.8 };
+        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.05 };
+        p.operators[2] = { ...defaultOp(), ratio: 1.0, level: 0.6 };
+        p.operators[3] = { ...defaultOp(), ratio: 2.0, level: 0.0 };
+        
+        p.env1 = { attack: 0.8, hold: 999, decay: 2.5, amount: 1.0, dest: 'none' };
+        p.env2 = { attack: 1.5, hold: 999, decay: 2.5, amount: 0.02, dest: 'mod4' };
         break;
 
       case 'Digital Glitch':
         p.algorithm = 2;
         p.feedback = 0.1;
-        p.operators[0] = { ...defaultOp(), level: 1.0, attack: 0.01, decay: 0.1, sustain: 1.0, release: 0.1 };
-        p.operators[1] = { ...defaultOp(), ratio: 7.0, level: 0.3, attack: 0.1, decay: 0.1, sustain: 0.5, release: 0.1 };
-        p.operators[2] = { ...defaultOp(), ratio: 0.25, level: 0.8, attack: 0.01, decay: 0.1, sustain: 1.0, release: 0.1 };
-        p.operators[3] = { ...defaultOp(), ratio: 11.0, level: 0.4, attack: 0.01, decay: 0.4, sustain: 0.0, release: 0.1 };
+        p.operators[0] = { ...defaultOp(), level: 1.0 };
+        p.operators[1] = { ...defaultOp(), ratio: 7.0, level: 0.3 };
+        p.operators[2] = { ...defaultOp(), ratio: 0.25, level: 0.8 };
+        p.operators[3] = { ...defaultOp(), ratio: 11.0, level: 0.4 };
+        
+        p.env1 = { attack: 0.01, hold: 999, decay: 0.1, amount: 1.0, dest: 'none' };
+        p.env2 = { attack: 0.01, hold: 0, decay: 0.1, amount: 0.0, dest: 'pitch' };
         break;
 
       case 'Vintage Lead':
         p.algorithm = 1;
-        p.feedback = 0.0;
-        p.operators[0] = { ...defaultOp(), level: 1.0, attack: 0.05, decay: 0.5, sustain: 0.8, release: 0.2 };
-        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.0, attack: 0.01, decay: 0.1, sustain: 0.0, release: 0.2 };
+        p.operators[0] = { ...defaultOp(), level: 1.0 };
+        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.0 };
+        
+        p.env1 = { attack: 0.05, hold: 999, decay: 0.2, amount: 1.0, dest: 'none' };
+        p.env2 = { attack: 0.005, hold: 0, decay: 0.5, amount: 0.0, dest: 'mod2' };
         break;
     }
 

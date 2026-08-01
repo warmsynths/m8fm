@@ -1,20 +1,43 @@
 import { applyDx7Algorithm } from './DX7Algorithms';
 
+export type EnvDest = 'mod1' | 'mod2' | 'mod3' | 'mod4' | 'pitch' | 'volume' | 'none';
+
+export interface EnvParams {
+  attack: number;
+  hold: number; // Duration to hold at peak before decaying
+  decay: number; // Acts as both decay and release
+  amount: number;
+  dest: EnvDest;
+}
+
+export type LfoShape = 'triangle' | 'sine' | 'square' | 'sawtooth';
+
+export interface LfoParams {
+  shape: LfoShape;
+  freq: number;
+  amount: number;
+  dest: EnvDest;
+}
+
 export interface OperatorParams {
   ratio: number;
   level: number;
-  attack: number;
-  decay: number;
-  sustain: number;
-  release: number;
-  pitchEnvDepth: number;
-  pitchEnvDecay: number;
+  attack?: number;
+  decay?: number;
+  sustain?: number;
+  release?: number;
+  pitchEnvDepth?: number;
+  pitchEnvDecay?: number;
 }
 
 export interface FmParams {
   algorithm: number;
   feedback: number;
   operators: OperatorParams[]; // Can be 4 (M8 mode) or 6 (Full DX7 mode)
+  env1?: EnvParams; // M8 Master Volume (AHD)
+  env2?: EnvParams; // M8 Assignable (AHD)
+  lfo1?: LfoParams;
+  lfo2?: LfoParams;
 }
 
 class Operator {
@@ -69,11 +92,23 @@ class Operator {
     }
   }
 
-  public triggerNoteOn(time: number, velocity: number = 1.0) {
-    const { attack, decay, sustain, pitchEnvDepth, pitchEnvDecay } = this.params;
+  public triggerNoteOn(time: number, velocity: number = 1.0, ignoreLocalEnv: boolean = false) {
     const gainParam = this.envGain.gain;
     
     gainParam.cancelScheduledValues(time);
+    
+    if (ignoreLocalEnv) {
+      // In strict M8 mode, the Operator does not use its own ADSR. It stays open at max.
+      // The actual ADSR is applied globally to the master gain or via env2 routing.
+      gainParam.setValueAtTime(velocity, time);
+      
+      this.osc.frequency.cancelScheduledValues(time);
+      this.osc.frequency.setValueAtTime(this.currentFreq, time);
+      return;
+    }
+
+    const { attack = 0.01, decay = 0.1, sustain = 0.8, pitchEnvDepth = 0, pitchEnvDecay = 0 } = this.params;
+    
     gainParam.setValueAtTime(0, time);
     
     // Attack
@@ -86,18 +121,21 @@ class Operator {
     this.osc.frequency.cancelScheduledValues(time);
     if (pitchEnvDepth !== 0 && pitchEnvDecay > 0) {
       this.osc.frequency.setValueAtTime(this.currentFreq * (1.0 + pitchEnvDepth), time);
-      // exponentialRampToValueAtTime needs a non-zero end value and same sign.
-      // We assume currentFreq is always positive.
       this.osc.frequency.exponentialRampToValueAtTime(Math.max(0.001, this.currentFreq), time + pitchEnvDecay);
     } else {
       this.osc.frequency.setValueAtTime(this.currentFreq, time);
     }
   }
 
-  public triggerNoteOff(time: number) {
-    const { release } = this.params;
+  public triggerNoteOff(time: number, ignoreLocalEnv: boolean = false) {
     const gainParam = this.envGain.gain;
     
+    if (ignoreLocalEnv) {
+      // In strict M8 mode, volume decay is handled globally.
+      return;
+    }
+
+    const { release = 0.1 } = this.params;
     gainParam.cancelScheduledValues(time);
     gainParam.setValueAtTime(gainParam.value, time);
     
@@ -124,6 +162,14 @@ export class FmEngine {
   private feedbackDelay!: DelayNode;
 
   public currentAlgorithm: number = 1;
+  private isStrictM8Mode: boolean = false;
+  private activeEnv1?: EnvParams;
+  private activeEnv2?: EnvParams;
+  
+  private lfo1Osc!: OscillatorNode;
+  private lfo1Gain!: GainNode;
+  private lfo2Osc!: OscillatorNode;
+  private lfo2Gain!: GainNode;
 
   public init(audioCtx: AudioContext) {
     this.ctx = audioCtx;
@@ -133,6 +179,20 @@ export class FmEngine {
 
     // Create 6 operators
     this.ops = Array.from({ length: 6 }, () => new Operator(this.ctx!, true));
+
+    // LFO 1
+    this.lfo1Osc = this.ctx.createOscillator();
+    this.lfo1Gain = this.ctx.createGain();
+    this.lfo1Gain.gain.value = 0;
+    this.lfo1Osc.connect(this.lfo1Gain);
+    this.lfo1Osc.start();
+
+    // LFO 2
+    this.lfo2Osc = this.ctx.createOscillator();
+    this.lfo2Gain = this.ctx.createGain();
+    this.lfo2Gain.gain.value = 0;
+    this.lfo2Osc.connect(this.lfo2Gain);
+    this.lfo2Osc.start();
 
     // Feedback loop for Op1
     this.feedbackGain = this.ctx.createGain();
@@ -161,6 +221,8 @@ export class FmEngine {
 
     // Disconnect all
     this.ops.forEach(op => op.disconnectAll());
+    this.lfo1Gain.disconnect();
+    this.lfo2Gain.disconnect();
 
     // Reconnect based on algorithm
     // Note: modIndexGain is what we connect from.
@@ -225,6 +287,47 @@ export class FmEngine {
     }
   }
 
+  private applyAhdToParam(param: AudioParam, time: number, env: EnvParams, baseValue: number) {
+    param.cancelScheduledValues(time);
+    param.setValueAtTime(0, time);
+    param.linearRampToValueAtTime(baseValue * env.amount, time + env.attack);
+    
+    // If hold is extremely long, it acts like a sustain. Otherwise it decays.
+    if (env.hold < 100) {
+      param.linearRampToValueAtTime(baseValue * env.amount, time + env.attack + env.hold);
+      param.linearRampToValueAtTime(0, time + env.attack + env.hold + env.decay);
+    }
+  }
+
+  private releaseAhdParam(param: AudioParam, time: number, env: EnvParams) {
+    param.cancelScheduledValues(time);
+    param.setValueAtTime(param.value, time);
+    param.linearRampToValueAtTime(0, time + env.decay); // In AHD, decay is the release time
+  }
+
+  private routeLfo(lfoOsc: OscillatorNode, lfoGain: GainNode, params: LfoParams | undefined, time: number) {
+    lfoGain.disconnect();
+    if (!params || params.dest === 'none' || params.amount === 0) return;
+    
+    lfoOsc.type = params.shape;
+    lfoOsc.frequency.setValueAtTime(params.freq, time);
+    
+    // LFO amount is scaled based on destination
+    if (params.dest === 'pitch') {
+      lfoGain.gain.setValueAtTime(params.amount * 50, time); // Pitch mod depth
+      this.ops.forEach(op => lfoGain.connect(op.osc.frequency));
+    } else if (params.dest === 'volume') {
+      lfoGain.gain.setValueAtTime(params.amount * 0.5, time); // Volume mod depth
+      lfoGain.connect(this.masterGain.gain);
+    } else {
+      lfoGain.gain.setValueAtTime(params.amount * 2.0, time); // Level mod depth
+      if (params.dest === 'mod1') lfoGain.connect(this.ops[0].modIndexGain.gain);
+      else if (params.dest === 'mod2') lfoGain.connect(this.ops[1].modIndexGain.gain);
+      else if (params.dest === 'mod3') lfoGain.connect(this.ops[2].modIndexGain.gain);
+      else if (params.dest === 'mod4') lfoGain.connect(this.ops[3].modIndexGain.gain);
+    }
+  }
+
   public triggerNoteOn(frequency: number, velocity: number = 1.0) {
     if (!this.ctx) return;
     const time = this.ctx.currentTime;
@@ -232,8 +335,35 @@ export class FmEngine {
     // Update frequencies and trigger envelopes
     this.ops.forEach(op => {
       op.setFrequency(frequency);
-      op.triggerNoteOn(time, velocity);
+      op.triggerNoteOn(time, velocity, this.isStrictM8Mode);
     });
+
+    if (this.isStrictM8Mode) {
+      if (this.activeEnv1) {
+        // Env1 is always master volume
+        this.applyAhdToParam(this.masterGain.gain, time, this.activeEnv1, 0.5 * velocity);
+      }
+      
+      if (this.activeEnv2) {
+        const dest = this.activeEnv2.dest;
+        if (dest === 'mod1') this.applyAhdToParam(this.ops[0].modIndexGain.gain, time, this.activeEnv2, this.ops[0].params.level * 2.0);
+        else if (dest === 'mod2') this.applyAhdToParam(this.ops[1].modIndexGain.gain, time, this.activeEnv2, this.ops[1].params.level * 2.0);
+        else if (dest === 'mod3') this.applyAhdToParam(this.ops[2].modIndexGain.gain, time, this.activeEnv2, this.ops[2].params.level * 2.0);
+        else if (dest === 'mod4') this.applyAhdToParam(this.ops[3].modIndexGain.gain, time, this.activeEnv2, this.ops[3].params.level * 2.0);
+        else if (dest === 'pitch') {
+          this.ops.forEach(op => {
+            const currentFreq = op.osc.frequency.value;
+            op.osc.frequency.cancelScheduledValues(time);
+            op.osc.frequency.setValueAtTime(currentFreq * (1.0 + this.activeEnv2!.amount), time);
+            
+            if (this.activeEnv2!.hold < 100) {
+              op.osc.frequency.setValueAtTime(currentFreq * (1.0 + this.activeEnv2!.amount), time + this.activeEnv2!.attack + this.activeEnv2!.hold);
+              op.osc.frequency.exponentialRampToValueAtTime(Math.max(0.001, currentFreq), time + this.activeEnv2!.attack + this.activeEnv2!.hold + this.activeEnv2!.decay);
+            }
+          });
+        }
+      }
+    }
   }
 
   public triggerNoteOff() {
@@ -241,25 +371,50 @@ export class FmEngine {
     const time = this.ctx.currentTime;
     
     this.ops.forEach(op => {
-      op.triggerNoteOff(time);
+      op.triggerNoteOff(time, this.isStrictM8Mode);
     });
+
+    if (this.isStrictM8Mode) {
+      if (this.activeEnv1) {
+        this.releaseAhdParam(this.masterGain.gain, time, this.activeEnv1);
+      }
+      if (this.activeEnv2) {
+        const dest = this.activeEnv2.dest;
+        if (dest === 'mod1') this.releaseAhdParam(this.ops[0].modIndexGain.gain, time, this.activeEnv2);
+        else if (dest === 'mod2') this.releaseAhdParam(this.ops[1].modIndexGain.gain, time, this.activeEnv2);
+        else if (dest === 'mod3') this.releaseAhdParam(this.ops[2].modIndexGain.gain, time, this.activeEnv2);
+        else if (dest === 'mod4') this.releaseAhdParam(this.ops[3].modIndexGain.gain, time, this.activeEnv2);
+      }
+    }
   }
 
   public applyParams(params: FmParams) {
     const isDx7Mode = params.operators.length === 6;
+    this.isStrictM8Mode = !isDx7Mode && !!params.env1;
+    this.activeEnv1 = params.env1;
+    this.activeEnv2 = params.env2;
+
     this.setAlgorithm(params.algorithm, isDx7Mode);
     this.setFeedback(params.feedback);
+
+    if (this.ctx) {
+      this.routeLfo(this.lfo1Osc, this.lfo1Gain, params.lfo1, this.ctx.currentTime);
+      this.routeLfo(this.lfo2Osc, this.lfo2Gain, params.lfo2, this.ctx.currentTime);
+    }
+
     for (let i = 0; i < params.operators.length; i++) {
       const op = params.operators[i];
       this.setOperatorParam(i, 'ratio', op.ratio);
       this.setOperatorParam(i, 'level', op.level);
-      this.setOperatorParam(i, 'attack', op.attack);
-      this.setOperatorParam(i, 'decay', op.decay);
-      this.setOperatorParam(i, 'sustain', op.sustain);
-      this.setOperatorParam(i, 'release', op.release);
-      this.setOperatorParam(i, 'pitchEnvDepth', op.pitchEnvDepth);
-      this.setOperatorParam(i, 'pitchEnvDecay', op.pitchEnvDecay);
+      // Optional legacy params
+      if (op.attack !== undefined) this.setOperatorParam(i, 'attack', op.attack);
+      if (op.decay !== undefined) this.setOperatorParam(i, 'decay', op.decay);
+      if (op.sustain !== undefined) this.setOperatorParam(i, 'sustain', op.sustain);
+      if (op.release !== undefined) this.setOperatorParam(i, 'release', op.release);
+      if (op.pitchEnvDepth !== undefined) this.setOperatorParam(i, 'pitchEnvDepth', op.pitchEnvDepth);
+      if (op.pitchEnvDecay !== undefined) this.setOperatorParam(i, 'pitchEnvDecay', op.pitchEnvDecay);
     }
+
     // Silence unused operators if switching back to 4-op mode
     for (let i = params.operators.length; i < this.ops.length; i++) {
       this.setOperatorParam(i, 'level', 0);

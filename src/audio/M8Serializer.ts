@@ -34,26 +34,62 @@ export class M8Serializer {
     instr.instrParams.operators[0].feedback = Math.floor(params.feedback * 127);
 
     // Envelopes
-    // M8 has 2 envelopes. We'll average out carrier env to Env1 and modulator env to Env2
-    const carrierEnv = params.operators[0];
-    const modEnv = params.operators[1];
-
-    instr.envelopes[0].attack = Math.floor(carrierEnv.attack * 255);
-    instr.envelopes[0].decay = Math.floor(carrierEnv.decay * 255);
-    
-    // Check if any operator has a pitch envelope
-    const pitchOp = params.operators.find(op => op.pitchEnvDepth > 0 && op.pitchEnvDecay > 0);
-    if (pitchOp) {
-      // Map pitch envelope to env 2
-      instr.envelopes[1].attack = 0;
-      instr.envelopes[1].decay = Math.floor(pitchOp.pitchEnvDecay * 255);
-      instr.envelopes[1].amount = Math.floor(Math.min(1.0, pitchOp.pitchEnvDepth) * 255);
-      instr.envelopes[1].dest = 1; // Assuming 1 is Pitch destination in M8
-    } else {
-      // Fallback: use for modulator volume envelope
-      instr.envelopes[1].attack = Math.floor(modEnv.attack * 255);
-      instr.envelopes[1].decay = Math.floor(modEnv.decay * 255);
+    if (params.env1) {
+      // Env1 is always Volume on M8
+      instr.envelopes[0].attack = Math.min(255, Math.floor(params.env1.attack * 255));
+      instr.envelopes[0].hold = params.env1.hold >= 999 ? 255 : Math.min(254, Math.floor(params.env1.hold * 255));
+      instr.envelopes[0].decay = Math.min(255, Math.floor(params.env1.decay * 255));
     }
+
+    if (params.env2) {
+      instr.envelopes[1].attack = Math.min(255, Math.floor(params.env2.attack * 255));
+      instr.envelopes[1].hold = params.env2.hold >= 999 ? 255 : Math.min(254, Math.floor(params.env2.hold * 255));
+      instr.envelopes[1].decay = Math.min(255, Math.floor(params.env2.decay * 255));
+      instr.envelopes[1].amount = Math.min(255, Math.floor(params.env2.amount * 255));
+      
+      const destMap: Record<string, number> = {
+        'none': 0,
+        'volume': 1,
+        'pitch': 2,
+        'mod1': 3,
+        'mod2': 4,
+        'mod3': 5,
+        'mod4': 6
+      };
+      instr.envelopes[1].dest = destMap[params.env2.dest] || 0;
+    }
+
+    // LFOs
+    const mapLfo = (lfoData: any, lfoObj: any) => {
+      if (!lfoData || lfoData.dest === 'none') {
+        lfoObj.amount = 0;
+        return;
+      }
+      lfoObj.amount = Math.min(255, Math.floor(lfoData.amount * 255));
+      lfoObj.freq = Math.min(255, Math.floor(lfoData.freq * 10)); // Arbitrary scaling for M8 freq 0-255
+
+      const destMap: Record<string, number> = {
+        'none': 0,
+        'volume': 1,
+        'pitch': 2,
+        'mod1': 3,
+        'mod2': 4,
+        'mod3': 5,
+        'mod4': 6
+      };
+      lfoObj.dest = destMap[lfoData.dest] || 0;
+
+      const shapeMap: Record<string, number> = {
+        'triangle': 0,
+        'sine': 1,
+        'sawtooth': 2,
+        'square': 6
+      };
+      lfoObj.shape = shapeMap[lfoData.shape] || 1;
+    };
+
+    mapLfo(params.lfo1, instr.lfos[0]);
+    mapLfo(params.lfo2, instr.lfos[1]);
 
     // Dump to binary
     return dumpM8File(instr);

@@ -116,7 +116,7 @@ export const MACHINES: Machine[] = [
         A('M2.5 16.5h19', 1.6, 'round', '2 2.6'),
         A('M2.5 9.5q1.6 3.4 3.2 0 1.7-4 3.4 0t3.3.4q1.7-3.4 3.4 0t3.7-.8', 1.6, 'round', 0, 'k-slop')]]
     ],
-    presets: [['Classic Saw', [50, 70, 20, 20]], ['Acid Sweep', [80, 40, 90, 10]], ['Drifting VCO', [30, 60, 40, 85]]]
+    presets: [['Classic Saw', [50, 70, 20, 20]], ['Hollow Square', [100, 60, 15, 30]], ['Drifting VCO', [30, 60, 40, 85]]]
   }
 ];
 
