@@ -1,3 +1,5 @@
+import { applyDx7Algorithm } from './DX7Algorithms';
+
 export interface OperatorParams {
   ratio: number;
   level: number;
@@ -12,7 +14,7 @@ export interface OperatorParams {
 export interface FmParams {
   algorithm: number;
   feedback: number;
-  operators: [OperatorParams, OperatorParams, OperatorParams, OperatorParams];
+  operators: OperatorParams[]; // Can be 4 (M8 mode) or 6 (Full DX7 mode)
 }
 
 class Operator {
@@ -129,13 +131,8 @@ export class FmEngine {
     this.masterGain.connect(this.ctx.destination);
     this.masterGain.gain.value = 0.5; // Master volume headroom
 
-    // Create 4 operators (Op1 is 0, Op4 is 3)
-    this.ops = [
-      new Operator(this.ctx, false), // Op1 (Carrier usually)
-      new Operator(this.ctx, true),  // Op2 (Modulator)
-      new Operator(this.ctx, true),  // Op3 (Modulator)
-      new Operator(this.ctx, true),  // Op4 (Modulator)
-    ];
+    // Create 6 operators
+    this.ops = Array.from({ length: 6 }, () => new Operator(this.ctx!, true));
 
     // Feedback loop for Op1
     this.feedbackGain = this.ctx.createGain();
@@ -153,9 +150,14 @@ export class FmEngine {
     this.setAlgorithm(1);
   }
 
-  public setAlgorithm(algoId: number) {
+  public setAlgorithm(algoId: number, isDx7Mode: boolean = false) {
     if (!this.ctx) return;
     this.currentAlgorithm = algoId;
+
+    if (isDx7Mode) {
+      applyDx7Algorithm(this.ops, this.masterGain, this.feedbackGain, algoId);
+      return;
+    }
 
     // Disconnect all
     this.ops.forEach(op => op.disconnectAll());
@@ -212,7 +214,7 @@ export class FmEngine {
   }
 
   public setOperatorParam(opIndex: number, param: keyof OperatorParams, value: number) {
-    if (opIndex < 0 || opIndex > 3) return;
+    if (opIndex < 0 || opIndex >= this.ops.length) return;
     this.ops[opIndex].params[param] = value;
   }
 
@@ -244,9 +246,10 @@ export class FmEngine {
   }
 
   public applyParams(params: FmParams) {
-    this.setAlgorithm(params.algorithm);
+    const isDx7Mode = params.operators.length === 6;
+    this.setAlgorithm(params.algorithm, isDx7Mode);
     this.setFeedback(params.feedback);
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < params.operators.length; i++) {
       const op = params.operators[i];
       this.setOperatorParam(i, 'ratio', op.ratio);
       this.setOperatorParam(i, 'level', op.level);
@@ -256,6 +259,10 @@ export class FmEngine {
       this.setOperatorParam(i, 'release', op.release);
       this.setOperatorParam(i, 'pitchEnvDepth', op.pitchEnvDepth);
       this.setOperatorParam(i, 'pitchEnvDecay', op.pitchEnvDecay);
+    }
+    // Silence unused operators if switching back to 4-op mode
+    for (let i = params.operators.length; i < this.ops.length; i++) {
+      this.setOperatorParam(i, 'level', 0);
     }
   }
 }

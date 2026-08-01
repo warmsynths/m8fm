@@ -12,7 +12,8 @@ export interface Machine {
 }
 
 export const MACHINES: Machine[] = [
-  { id: 'ep', name: 'Electric Piano', icon: [A('M5 20h14'), A('M10 20V6'), A('M14 20V10'), A('M10 3.6h0', 3.6, 'round', 0, 'k-idle')],
+  {
+    id: 'ep', name: 'Electric Piano', icon: [A('M5 20h14'), A('M10 20V6'), A('M14 20V10'), A('M10 3.6h0', 3.6, 'round', 0, 'k-idle')],
     mods: [
       ['TINE\nMATERIAL', 'Rungs lengthen — the bar rings wider and glassier.', [
         A('M12 3v18'), A('M7.5 8h9', 1.6, 'round', 0, 'k-tine'), A('M7.5 12h9', 1.6, 'round', 0, 'k-tine', '.18s'), A('M7.5 16h9', 1.6, 'round', 0, 'k-tine', '.36s')]],
@@ -25,9 +26,11 @@ export const MACHINES: Machine[] = [
         A('M2.5 6.5h19', 1.6, 'round', '2 2.6', 'k-rail'), A('M2.5 17.5h19', 1.6, 'round', '2 2.6', 'k-railb'),
         A('M2.5 12q2.4-7 4.75 0T12 12t4.75 0T21.5 12', 1.6, 'butt', 0, 'k-trem')]]
     ],
-    presets: [['MK1', [62, 74, 38, 46]], ['GLASS', [88, 40, 12, 58]], ['DIRT WURLI', [44, 86, 72, 30]]] },
+    presets: [['Classic MK1', [62, 74, 38, 46]], ['Glassy Rhodes', [88, 40, 12, 58]], ['Dirty Wurli', [44, 86, 72, 30]]]
+  },
 
-  { id: 'sb', name: 'Sub Bass', icon: [A('M12 12h0', 6, 'round', 0, 'k-idle'), A('M7.2 8.2a6.4 6.4 0 000 7.6'), A('M16.8 8.2a6.4 6.4 0 010 7.6'), A('M3.8 5.4a11 11 0 000 13.2'), A('M20.2 5.4a11 11 0 010 13.2')],
+  {
+    id: 'sb', name: 'Sub Bass', icon: [A('M12 12h0', 6, 'round', 0, 'k-idle'), A('M7.2 8.2a6.4 6.4 0 000 7.6'), A('M16.8 8.2a6.4 6.4 0 010 7.6'), A('M3.8 5.4a11 11 0 000 13.2'), A('M20.2 5.4a11 11 0 010 13.2')],
     mods: [
       ['SUB\nWEIGHT', 'The stack sinks and the bottom line thickens.', [
         A('M4.5 6.5h15', 1.2, 'round', 0, 'k-weight'), A('M4.5 12h15', 2.4, 'round', 0, 'k-weight', '.12s'), A('M4.5 18h15', 4, 'round', 0, 'k-weight', '.24s')]],
@@ -39,9 +42,11 @@ export const MACHINES: Machine[] = [
         A('M12 19.5h0', 3.8, 'round', 0, 'k-thump', 0, 'ease-out'), A('M6.2 19.5a5.8 5.8 0 0111.6 0', 1.6, 'butt', 0, 'k-ring', 0, 'ease-out'),
         A('M2.4 19.5a9.6 9.6 0 0119.2 0', 1.6, 'butt', 0, 'k-ring', '.7s', 'ease-out')]]
     ],
-    presets: [['DEEP', [81, 29, 20, 67]], ['REESE', [60, 44, 78, 50]], ['808', [90, 70, 10, 88]]] },
+    presets: [['Deep Sub', [85, 10, 15, 60]], ['Grime Reese', [70, 0, 85, 40]], ['Classic 808', [100, 80, 0, 95]]]
+  },
 
-  { id: 'ml', name: 'Mallet', icon: [A('M4 20h16'), A('M7.5 4.5 13.6 12.4'), A('M5.5 15.5 3.6 17.4'), A('M8.6 17.6 7.4 19.4'), A('M15.6 14.6h0', 5.8, 'round', 0, 'k-idle')],
+  {
+    id: 'ml', name: 'Mallet', icon: [A('M4 20h16'), A('M7.5 4.5 13.6 12.4'), A('M5.5 15.5 3.6 17.4'), A('M8.6 17.6 7.4 19.4'), A('M15.6 14.6h0', 5.8, 'round', 0, 'k-idle')],
     mods: [
       ['HARMONIC\nFOCUS', 'The ring tightens onto the core — energy converging.', [
         A('M12 5.8a6.2 6.2 0 010 12.4 6.2 6.2 0 010-12.4', 1.6, 'butt', 0, 'k-focus'),
@@ -56,9 +61,11 @@ export const MACHINES: Machine[] = [
         A('M13.2 16.5h2', 2, 'butt', 0, 'k-burst', '.19s', 'steps(1,end)'),
         A('M16.6 10h2', 2, 'butt', 0, 'k-burst', '.26s', 'steps(1,end)')]]
     ],
-    presets: [['WOOD', [44, 70, 13]], ['GLASS BELL', [72, 30, 8]], ['BONE', [30, 88, 40]]] },
+    presets: [['WOOD', [44, 70, 13]], ['GLASS BELL', [72, 30, 8]], ['BONE', [30, 88, 40]]]
+  },
 
-  { id: 'pd', name: 'Pad', icon: [A('M7 4.5h10a3 3 0 013 3v3'), A('M6 8h11a2.5 2.5 0 012.5 2.5v6a2.5 2.5 0 01-2.5 2.5H6a2.5 2.5 0 01-2.5-2.5v-6A2.5 2.5 0 016 8z'), A('M6 14.2q2.6-2.6 5.2 0t5.2 0', 1.4, 'round', 0, 'k-idle')],
+  {
+    id: 'pd', name: 'Pad', icon: [A('M7 4.5h10a3 3 0 013 3v3'), A('M6 8h11a2.5 2.5 0 012.5 2.5v6a2.5 2.5 0 01-2.5 2.5H6a2.5 2.5 0 01-2.5-2.5v-6A2.5 2.5 0 016 8z'), A('M6 14.2q2.6-2.6 5.2 0t5.2 0', 1.4, 'round', 0, 'k-idle')],
     mods: [
       ['WASH', 'Layers glide across each other at different speeds.', [
         A('M2.5 7q3-3.6 6 0t6 0 6 0', 1.5, 'round', 0, 'k-wash'), A('M2.5 12q3-3.6 6 0t6 0 6 0', 1.5, 'round', 0, 'k-washb', '.4s'),
@@ -72,9 +79,11 @@ export const MACHINES: Machine[] = [
         A('M12 3.4a8.6 8.6 0 010 17.2 8.6 8.6 0 010-17.2', 1.6, 'butt'),
         A('M12 8.4a3.6 3.6 0 010 7.2 3.6 3.6 0 010-7.2', 1.6, 'butt', '2 2.8', 'k-hollow')]]
     ],
-    presets: [['DRIFT', [58, 34, 51, 22]], ['CHOIR', [70, 60, 66, 14]], ['VOID', [40, 20, 30, 80]]] },
+    presets: [['DRIFT', [58, 34, 51, 22]], ['CHOIR', [70, 60, 66, 14]], ['VOID', [40, 20, 30, 80]]]
+  },
 
-  { id: 'dg', name: 'Digital Glitch', icon: [A('M3.2 5.1h2.4M8.2 5.1h2.4M18.2 5.1h2.4', 2.2, 'butt'), A('M5.6 10.1h2.4M10.6 10.1h2.4M15.6 10.1h2.4', 2.2, 'butt', 0, 'k-idle'), A('M3.2 15.1h2.4M13.2 15.1h2.4M18.2 15.1h2.4', 2.2, 'butt'), A('M7.2 19.7h2.4M12.2 19.7h2.4', 2.2, 'butt')],
+  {
+    id: 'dg', name: 'Digital Glitch', icon: [A('M3.2 5.1h2.4M8.2 5.1h2.4M18.2 5.1h2.4', 2.2, 'butt'), A('M5.6 10.1h2.4M10.6 10.1h2.4M15.6 10.1h2.4', 2.2, 'butt', 0, 'k-idle'), A('M3.2 15.1h2.4M13.2 15.1h2.4M18.2 15.1h2.4', 2.2, 'butt'), A('M7.2 19.7h2.4M12.2 19.7h2.4', 2.2, 'butt')],
     mods: [
       ['DIGITAL\nDIRT', 'Rows drop out at random — a steady, mechanical corruption.', [
         A('M3 4.9h1.8M7.4 4.9h1.8M14 4.9h1.8', 1.8, 'butt', 0, 'k-dirt', 0, 'steps(1,end)'),
@@ -88,9 +97,11 @@ export const MACHINES: Machine[] = [
       ['PULSE\nWIDTH', 'The duty cycle narrows and opens — the wave itself squeezing.', [
         A('M2.5 17h4V7h3v10h4.5V7h3v10h4', 1.6, 'round', 0, 'k-duty')]]
     ],
-    presets: [['SHRED', [88, 63, 41]], ['BITCRUSH', [96, 30, 70]], ['ZAP', [40, 92, 25]]] },
+    presets: [['SHRED', [88, 63, 41]], ['BITCRUSH', [96, 30, 70]], ['ZAP', [40, 92, 25]]]
+  },
 
-  { id: 'vl', name: 'Vintage Lead', icon: [A('M2.5 18 7 6.5V18l4.5-11.5V18L16 6.5V18l4.5-11.5', 1.6, 'butt', 0, 'k-idle')],
+  {
+    id: 'vl', name: 'Vintage Lead', icon: [A('M2.5 18 7 6.5V18l4.5-11.5V18L16 6.5V18l4.5-11.5', 1.6, 'butt', 0, 'k-idle')],
     mods: [
       ['TIMBRE', 'Waveforms hand over one to the next — sine, triangle, square.', [
         A('M2.5 6q2.4-4.5 4.8 0T12.1 6', 1.5, 'round', 0, 'k-morph'),
@@ -105,7 +116,8 @@ export const MACHINES: Machine[] = [
         A('M2.5 16.5h19', 1.6, 'round', '2 2.6'),
         A('M2.5 9.5q1.6 3.4 3.2 0 1.7-4 3.4 0t3.3.4q1.7-3.4 3.4 0t3.7-.8', 1.6, 'round', 0, 'k-slop')]]
     ],
-    presets: [['VOLT', [37, 72, 49, 27]], ['ACID', [60, 88, 80, 15]], ['DRUNK', [30, 50, 40, 85]]] }
+    presets: [['Classic Saw', [50, 70, 20, 20]], ['Acid Sweep', [80, 40, 90, 10]], ['Drifting VCO', [30, 60, 40, 85]]]
+  }
 ];
 
 export const FM_NAMES = ['ALGO', 'RATIO', 'FBK', 'MOD A', 'MOD B'];

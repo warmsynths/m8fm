@@ -1,3 +1,4 @@
+import type { FmParams } from './FmEngine';
 import { FmEngine } from './FmEngine';
 import { MacroMapper, type AnchorName } from './MacroMapper';
 import { M8Serializer } from './M8Serializer';
@@ -13,6 +14,7 @@ export class AudioController {
   private mapper = new MacroMapper();
   private serializer = new M8Serializer();
   private isInitialized = false;
+  private rawParams: FmParams | null = null;
 
   constructor() {
     this.attachKeyboardListeners();
@@ -45,23 +47,32 @@ export class AudioController {
 
   public loadAnchor(anchor: AnchorName) {
     this.init();
+    this.rawParams = null; // Clear raw params when using macro mapper
     this.mapper.loadAnchor(anchor);
     this.applyParams();
   }
 
   public setMacro(macroName: string, value: number) {
     this.init();
+    if (this.rawParams) return; // Don't apply macros if we're in raw mode
     this.mapper.setMacro(macroName, value);
     this.applyParams();
   }
 
+  public loadRawParams(params: FmParams) {
+    this.init();
+    this.rawParams = params;
+    this.engine.applyParams(params);
+  }
+
   private applyParams() {
     if (!this.isInitialized) return;
-    const params = this.mapper.getComputedFmParams();
+    const params = this.rawParams || this.mapper.getComputedFmParams();
     this.engine.applyParams(params);
   }
 
   public exportPatch(filename: string) {
-    this.serializer.downloadM8Instrument(filename, this.mapper.getComputedFmParams());
+    const params = this.rawParams || this.mapper.getComputedFmParams();
+    this.serializer.downloadM8Instrument(filename, params);
   }
 }

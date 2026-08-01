@@ -4,8 +4,10 @@ import { styleMap } from 'lit/directives/style-map.js';
 
 import './style.css';
 import { AudioController } from './audio/AudioController';
-import { type AnchorName } from './audio/MacroMapper';
+import { AnchorMacroConfig, type AnchorName } from './audio/MacroMapper';
 import { MACHINES, FM_NAMES } from './ui/MachineData';
+import { SysExParser, type Dx7Patch } from './audio/SysExParser';
+import { DX7ToM8Translator } from './audio/DX7ToM8Translator';
 
 const audio = new AudioController();
 
@@ -40,6 +42,12 @@ export class FmStudio extends LitElement {
   @state() accessor v: Record<string, number> = {};
   @state() accessor dirty = false;
 
+  @state() accessor dx7Patches: Dx7Patch[] = [];
+  @state() accessor dx7Sel = 0;
+  @state() accessor dx7Adv = false;
+  @state() accessor dx7ManualOps: Set<number> = new Set();
+  @state() accessor fullDx7Mode: boolean = false;
+
   connectedCallback() {
     super.connectedCallback();
     this.selectMachine(0);
@@ -57,7 +65,7 @@ export class FmStudio extends LitElement {
     this.dirty = true;
     
     const m = MACHINES[this.sel];
-    const macroName = m.mods[i][0].replace('\n', ' ');
+    const macroName = AnchorMacroConfig[m.name as AnchorName][i];
     audio.setMacro(macroName, nv / 100);
   }
 
@@ -72,9 +80,52 @@ export class FmStudio extends LitElement {
     
     for (let i = 0; i < m.mods.length; i++) {
       const val = this.getVal(idx, i);
-      const macroName = m.mods[i][0].replace('\n', ' ');
+      const macroName = AnchorMacroConfig[m.name as AnchorName][i];
       audio.setMacro(macroName, val / 100);
     }
+  }
+
+  async handleSyxUpload(e: Event) {
+    const input = e.target as HTMLInputElement;
+    if (!input.files || input.files.length === 0) return;
+    const file = input.files[0];
+    const buffer = await file.arrayBuffer();
+    try {
+      this.dx7Patches = SysExParser.parseFile(buffer);
+      this.selectDx7Patch(0);
+    } catch (err) {
+      alert(err);
+    }
+    input.value = ''; // Reset so the same file can be loaded again
+  }
+
+  selectDx7Patch(idx: number) {
+    if (this.dx7Patches.length === 0) return;
+    this.dx7Sel = idx;
+    const patch = this.dx7Patches[idx];
+    const keepIndices = this.dx7ManualOps.size === 4 ? Array.from(this.dx7ManualOps) : undefined;
+    const { m8Params, fullParams } = DX7ToM8Translator.translate(patch, keepIndices);
+    audio.loadRawParams(this.fullDx7Mode ? fullParams : m8Params);
+  }
+  
+  toggleFullDx7Mode() {
+    this.fullDx7Mode = !this.fullDx7Mode;
+    this.selectDx7Patch(this.dx7Sel);
+  }
+  
+  toggleDx7Op(opIndex: number) {
+    const newSet = new Set(this.dx7ManualOps);
+    if (newSet.has(opIndex)) {
+      newSet.delete(opIndex);
+    } else {
+      if (newSet.size >= 4) {
+        // Remove the first one added to keep max 4
+        newSet.delete(Array.from(newSet)[0]);
+      }
+      newSet.add(opIndex);
+    }
+    this.dx7ManualOps = newSet;
+    this.selectDx7Patch(this.dx7Sel);
   }
 
   selectPreset(idx: number) {
@@ -85,13 +136,26 @@ export class FmStudio extends LitElement {
     const m = MACHINES[this.sel];
     for (let i = 0; i < m.mods.length; i++) {
       const val = this.getVal(this.sel, i);
-      const macroName = m.mods[i][0].replace('\n', ' ');
+      const macroName = AnchorMacroConfig[m.name as AnchorName][i];
       audio.setMacro(macroName, val / 100);
     }
   }
 
   downloadM8Instrument() {
-    audio.exportPatch('Patch.m8i');
+    if (this.dx7Patches.length > 0) {
+      // ALWAYS export M8 params (4-op), never the full 6-op ones
+      const patch = this.dx7Patches[this.dx7Sel];
+      const keepIndices = this.dx7ManualOps.size === 4 ? Array.from(this.dx7ManualOps) : undefined;
+      const { m8Params } = DX7ToM8Translator.translate(patch, keepIndices);
+      audio.loadRawParams(m8Params); // Temporarily load the M8 version if we are in full mode
+      audio.exportPatch('Patch.m8i');
+      if (this.fullDx7Mode) {
+        // Restore full mode
+        this.selectDx7Patch(this.dx7Sel);
+      }
+    } else {
+      audio.exportPatch('Patch.m8i');
+    }
     console.log('Exported .m8i patch');
   }
 
@@ -143,11 +207,57 @@ export class FmStudio extends LitElement {
             </div>
             <div style="display:flex;align-items:center;gap:8px">
               <div style="font:400 10px 'JetBrains Mono',monospace;letter-spacing:.1em;color:rgba(0,0,0,.4)">${dirtyMark}</div>
+              <!-- Hidden DX7 stuff -->
+              <input type="file" id="syx-upload" accept=".syx" style="display:none" @change=${this.handleSyxUpload} />
+              <button type="button" @click=${() => this.renderRoot.querySelector('#syx-upload')?.dispatchEvent(new MouseEvent('click'))} style="display:none; border:1px solid #101010;background:transparent;color:#101010;padding:8px 13px;border-radius:4px;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.14em;white-space:nowrap">LOAD .SYX</button>
               <button type="button" @click=${this.downloadM8Instrument} style="border:1px solid #101010;background:#101010;color:#fff;padding:8px 13px;border-radius:4px;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.14em;white-space:nowrap">COPY TO M8</button>
             </div>
           </div>
+          
+          ${false && this.dx7Patches.length > 0 ? html`
+          <div style="padding:16px 18px;border-bottom:1px solid rgba(0,0,0,.12);background:#dcd9c6;display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div style="font:700 14px 'Space Grotesk',sans-serif">DX7 Bank Loaded (${this.dx7Patches.length} patches)</div>
+              <button type="button" @click=${() => { this.dx7Patches = []; this.selectMachine(0); }} style="background:none;border:none;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;text-decoration:underline">CLOSE</button>
+            </div>
+            <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:6px">
+              ${this.dx7Patches.map((p, i) => html`
+                <button type="button" @click=${() => this.selectDx7Patch(i)} style="padding:6px;border:1px solid ${i === this.dx7Sel ? '#17170f' : 'rgba(0,0,0,.12)'};background:${i === this.dx7Sel ? '#17170f' : '#fff'};color:${i === this.dx7Sel ? '#fff' : '#17170f'};border-radius:4px;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                  ${String(i + 1).padStart(2, '0')}. ${p.name}
+                </button>
+              `)}
+            </div>
+            
+            <div style="display:flex;align-items:center;gap:16px;margin-top:4px">
+              <button type="button" @click=${() => this.dx7Adv = !this.dx7Adv} style="background:none;border:none;padding:0;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.5);display:flex;align-items:center;gap:7px;width:fit-content">
+                <span style="display:inline-block;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;transform:rotate(${this.dx7Adv ? '90deg' : '0deg'})"></span>ADVANCED DX7 ROUTING
+              </button>
+              
+              <div style="display:flex;align-items:center;gap:8px">
+                <div style="font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.5)">PREVIEW MODE:</div>
+                <button type="button" @click=${this.toggleFullDx7Mode} style="background:${this.fullDx7Mode ? 'transparent' : '#17170f'};border:1px solid ${this.fullDx7Mode ? 'rgba(0,0,0,.15)' : '#17170f'};color:${this.fullDx7Mode ? '#17170f' : '#fff'};padding:4px 8px;border-radius:3px;cursor:pointer;font:500 10px 'JetBrains Mono',monospace">M8</button>
+                <button type="button" @click=${this.toggleFullDx7Mode} style="background:${this.fullDx7Mode ? '#17170f' : 'transparent'};border:1px solid ${this.fullDx7Mode ? '#17170f' : 'rgba(0,0,0,.15)'};color:${this.fullDx7Mode ? '#fff' : '#17170f'};padding:4px 8px;border-radius:3px;cursor:pointer;font:500 10px 'JetBrains Mono',monospace">FULL DX7</button>
+              </div>
+            </div>
+            
+            ${this.dx7Adv ? html`
+              <div style="background:rgba(255,255,255,0.4);border-radius:4px;padding:12px;display:flex;flex-direction:column;gap:8px">
+                <div style="font:400 10px 'JetBrains Mono',monospace;color:rgba(0,0,0,.6)">Select 4 operators to extract (heuristic is used if less than 4 selected).</div>
+                <div style="display:flex;gap:6px">
+                  ${[1, 2, 3, 4, 5, 6].map(num => {
+                    const idx = num - 1; // 0=Op1
+                    const isSel = this.dx7ManualOps.has(idx);
+                    return html`
+                      <button type="button" @click=${() => this.toggleDx7Op(idx)} style="flex:1;padding:8px 0;border:1px solid ${isSel ? '#17170f' : 'rgba(0,0,0,.15)'};background:${isSel ? '#17170f' : 'transparent'};color:${isSel ? '#fff' : '#17170f'};border-radius:3px;cursor:pointer;font:500 11px 'JetBrains Mono',monospace">OP${num}</button>
+                    `;
+                  })}
+                </div>
+              </div>
+            ` : nothing}
+          </div>
+          ` : nothing}
 
-          <div style="display:flex">
+          <div style="display:flex;${this.dx7Patches.length > 0 ? 'opacity:0.3;pointer-events:none' : ''}">
             <div style="width:186px;flex:none;border-right:1px solid rgba(0,0,0,.12);padding:14px 12px;display:flex;flex-direction:column;gap:7px">
               <div style="font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.4);margin-bottom:2px">MACHINE</div>
               ${MACHINES.map((m, idx) => {
