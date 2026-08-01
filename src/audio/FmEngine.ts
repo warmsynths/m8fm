@@ -136,8 +136,11 @@ class Operator {
     }
 
     const { release = 0.1 } = this.params;
-    gainParam.cancelScheduledValues(time);
-    gainParam.setValueAtTime(gainParam.value, time);
+    if ('cancelAndHoldAtTime' in gainParam && typeof (gainParam as any).cancelAndHoldAtTime === 'function') {
+      (gainParam as any).cancelAndHoldAtTime(time);
+    } else {
+      gainParam.cancelScheduledValues(time);
+    }
     
     // Release
     gainParam.linearRampToValueAtTime(0, time + release);
@@ -155,12 +158,14 @@ class Operator {
 export class FmEngine {
   private ctx: AudioContext | null = null;
   private masterGain!: GainNode;
+  private tremoloGain!: GainNode;
   private outputGain!: GainNode;
   
   private ops: Operator[] = [];
   
   private feedbackGain!: GainNode;
   private feedbackDelay!: DelayNode;
+  private currentFeedbackAmount: number = 0;
 
   public currentAlgorithm: number = 1;
   private isStrictM8Mode: boolean = false;
@@ -175,10 +180,15 @@ export class FmEngine {
   public init(audioCtx: AudioContext) {
     this.ctx = audioCtx;
     this.masterGain = this.ctx.createGain();
+    this.tremoloGain = this.ctx.createGain();
     this.outputGain = this.ctx.createGain();
-    this.masterGain.connect(this.outputGain);
+    
+    this.masterGain.connect(this.tremoloGain);
+    this.tremoloGain.connect(this.outputGain);
     this.outputGain.connect(this.ctx.destination);
+    
     this.masterGain.gain.value = 0.5; // Master volume headroom
+    this.tremoloGain.gain.value = 1.0; // Default flat tremolo
     this.outputGain.gain.value = 0.5; // Default user volume
 
     // Create 6 operators
@@ -291,9 +301,11 @@ export class FmEngine {
   }
 
   public setFeedback(amount: number) {
-    // Arbitrary scaling for feedback amount (e.g. 0 to 1000)
+    this.currentFeedbackAmount = amount;
     if (this.ctx) {
-      this.feedbackGain.gain.setTargetAtTime(amount * 1000, this.ctx.currentTime, 0.01);
+      const baseFreq = this.ops[0]?.currentFreq || 440;
+      // Frequency-proportional feedback depth for consistent timbre across octaves
+      this.feedbackGain.gain.setTargetAtTime(amount * baseFreq * 0.5, this.ctx.currentTime, 0.01);
     }
   }
 
@@ -310,9 +322,12 @@ export class FmEngine {
   }
 
   private releaseAhdParam(param: AudioParam, time: number, env: EnvParams) {
-    param.cancelScheduledValues(time);
-    param.setValueAtTime(param.value, time);
-    param.linearRampToValueAtTime(0, time + env.decay); // In AHD, decay is the release time
+    if ('cancelAndHoldAtTime' in param && typeof (param as any).cancelAndHoldAtTime === 'function') {
+      (param as any).cancelAndHoldAtTime(time);
+    } else {
+      param.cancelScheduledValues(time);
+    }
+    param.linearRampToValueAtTime(0, time + Math.min(env.decay, 0.2));
   }
 
   private routeLfo(lfoOsc: OscillatorNode, lfoGain: GainNode, params: LfoParams | undefined, time: number) {
@@ -329,11 +344,8 @@ export class FmEngine {
       lfoGain.gain.setValueAtTime(params.amount * 50, time); // Pitch mod depth
       this.ops.forEach(op => lfoGain.connect(op.osc.frequency));
     } else if (params.dest === 'volume') {
-      lfoGain.gain.setValueAtTime(params.amount * 0.5, time); // Volume mod depth
-      // Connect to all carriers' envGain so it gets multiplied by masterGain envelope
-      this.ops.forEach(op => {
-        if (!op.isModulator) lfoGain.connect(op.envGain.gain);
-      });
+      lfoGain.gain.setValueAtTime(params.amount * 0.4, time); // Pure volume tremolo
+      lfoGain.connect(this.tremoloGain.gain);
     } else {
       lfoGain.gain.setValueAtTime(params.amount * 2.0, time); // Level mod depth
       if (params.dest === 'mod1') lfoGain.connect(this.ops[0].modIndexGain.gain);
@@ -353,6 +365,9 @@ export class FmEngine {
       op.triggerNoteOn(time, velocity, this.isStrictM8Mode);
     });
 
+    // Update feedback scaling for the new note frequency
+    this.setFeedback(this.currentFeedbackAmount);
+
     if (this.isStrictM8Mode) {
       if (this.activeEnv1) {
         // Env1 is always master volume
@@ -361,18 +376,23 @@ export class FmEngine {
       
       if (this.activeEnv2) {
         const dest = this.activeEnv2.dest;
-        if (dest === 'mod1') this.applyAhdToParam(this.ops[0].modIndexGain.gain, time, this.activeEnv2, this.ops[0].params.level * 2.0);
-        else if (dest === 'mod2') this.applyAhdToParam(this.ops[1].modIndexGain.gain, time, this.activeEnv2, this.ops[1].params.level * 2.0);
-        else if (dest === 'mod3') this.applyAhdToParam(this.ops[2].modIndexGain.gain, time, this.activeEnv2, this.ops[2].params.level * 2.0);
-        else if (dest === 'mod4') this.applyAhdToParam(this.ops[3].modIndexGain.gain, time, this.activeEnv2, this.ops[3].params.level * 2.0);
+        const getModBase = (opIndex: number) => {
+          const op = this.ops[opIndex];
+          return op.params.level * 2.0 * (op.isModulator ? op.currentFreq : 1.0);
+        };
+
+        if (dest === 'mod1') this.applyAhdToParam(this.ops[0].modIndexGain.gain, time, this.activeEnv2, getModBase(0));
+        else if (dest === 'mod2') this.applyAhdToParam(this.ops[1].modIndexGain.gain, time, this.activeEnv2, getModBase(1));
+        else if (dest === 'mod3') this.applyAhdToParam(this.ops[2].modIndexGain.gain, time, this.activeEnv2, getModBase(2));
+        else if (dest === 'mod4') this.applyAhdToParam(this.ops[3].modIndexGain.gain, time, this.activeEnv2, getModBase(3));
         else if (dest === 'pitch') {
           this.ops.forEach(op => {
             const currentFreq = op.currentFreq;
             op.osc.frequency.cancelScheduledValues(time);
-            op.osc.frequency.setValueAtTime(currentFreq * (1.0 + this.activeEnv2!.amount), time);
+            op.osc.frequency.setValueAtTime(Math.max(0.001, currentFreq * (1.0 + this.activeEnv2!.amount)), time);
             
             if (this.activeEnv2!.hold < 100) {
-              op.osc.frequency.setValueAtTime(currentFreq * (1.0 + this.activeEnv2!.amount), time + this.activeEnv2!.attack + this.activeEnv2!.hold);
+              op.osc.frequency.setValueAtTime(Math.max(0.001, currentFreq * (1.0 + this.activeEnv2!.amount)), time + this.activeEnv2!.attack + this.activeEnv2!.hold);
               op.osc.frequency.exponentialRampToValueAtTime(Math.max(0.001, currentFreq), time + this.activeEnv2!.attack + this.activeEnv2!.hold + this.activeEnv2!.decay);
             }
           });
@@ -399,6 +419,16 @@ export class FmEngine {
         else if (dest === 'mod2') this.releaseAhdParam(this.ops[1].modIndexGain.gain, time, this.activeEnv2);
         else if (dest === 'mod3') this.releaseAhdParam(this.ops[2].modIndexGain.gain, time, this.activeEnv2);
         else if (dest === 'mod4') this.releaseAhdParam(this.ops[3].modIndexGain.gain, time, this.activeEnv2);
+        else if (dest === 'pitch') {
+          this.ops.forEach(op => {
+            if ('cancelAndHoldAtTime' in op.osc.frequency && typeof (op.osc.frequency as any).cancelAndHoldAtTime === 'function') {
+              (op.osc.frequency as any).cancelAndHoldAtTime(time);
+            } else {
+              op.osc.frequency.cancelScheduledValues(time);
+            }
+            op.osc.frequency.exponentialRampToValueAtTime(Math.max(0.001, op.currentFreq), time + Math.min(this.activeEnv2!.decay, 0.2));
+          });
+        }
       }
     }
   }
