@@ -184,7 +184,9 @@ export class FmStudio extends LitElement {
   }
   
   renderPaths(paths: any[]) {
-    return paths.map(p => svg`<path d="${p.d}" stroke-width="${p.w}" stroke-linecap="${p.c}" stroke-dasharray="${p.s}" style="${p.style}"></path>`);
+    const shadow = paths.map(p => svg`<path d="${p.d}" stroke-width="${p.w}" stroke-linecap="${p.c}" stroke-linejoin="${p.c === 'round' ? 'round' : 'miter'}" stroke-dasharray="${p.s}" style="${p.style}" stroke="url(#checker)" transform="translate(1.5, 1.5)" opacity="0.7"></path>`);
+    const main = paths.map(p => svg`<path d="${p.d}" stroke-width="${p.w}" stroke-linecap="${p.c}" stroke-linejoin="${p.c === 'round' ? 'round' : 'miter'}" stroke-dasharray="${p.s}" style="${p.style}" stroke="currentColor"></path>`);
+    return [...shadow, ...main];
   }
 
   render() {
@@ -197,6 +199,14 @@ export class FmStudio extends LitElement {
 
     return html`
       <div id="app">
+        <svg width="0" height="0" style="position:absolute;visibility:hidden">
+          <defs>
+            <pattern id="checker" width="2" height="2" patternUnits="userSpaceOnUse">
+              <rect x="0" y="0" width="1" height="1" fill="currentColor"/>
+              <rect x="1" y="1" width="1" height="1" fill="currentColor"/>
+            </pattern>
+          </defs>
+        </svg>
         <!-- Desktop Layout -->
         <div class="desktop-view" style="width:820px;flex:none;background:#e2e0dc;border:1px solid rgba(0,0,0,.12);border-radius:7px;overflow:hidden;flex-direction:column;max-height:100%">
           
@@ -268,7 +278,7 @@ export class FmStudio extends LitElement {
                 const vars = isSel ? getVars(70) : getVars(0);
                 return html`
                   <button type="button" @click=${() => this.selectMachine(idx)} style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid ${border};background:${bg};border-radius:4px;cursor:pointer;text-align:left">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="${fg}" stroke-linejoin="round" style=${styleMap(vars as any)}>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style=${styleMap({ color: fg, ...vars as any })}>
                       ${this.renderPaths(m.icon)}
                     </svg>
                     <div style="flex:1;font:500 11.5px/1.2 'Space Grotesk',sans-serif;color:${fg}">${m.name}</div>
@@ -307,8 +317,8 @@ export class FmStudio extends LitElement {
                           <div style="font:500 11.5px/1.2 'JetBrains Mono',monospace;letter-spacing:.06em;color:#dcd9c6;white-space:pre-line">${m[0]}</div>
                           <div style="font:400 10px/1.45 'Space Grotesk',sans-serif;color:rgba(220,217,198,.42);margin-top:6px">${m[1]}</div>
                         </div>
-                        <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#dcd9c6" stroke-linejoin="round" style=${styleMap(vars as any)}>
-                          ${this.renderPaths(m[2] as any[])}
+                        <svg width="42" height="42" viewBox="0 0 24 24" fill="none" style=${styleMap({ color: '#dcd9c6', ...vars as any })}>
+                          ${this.renderPaths((m[2] as (v: number) => any[])(v / 100))}
                         </svg>
                       </div>
                       <div style="width:104px;background:#e6e3d4;padding:13px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end">
@@ -353,7 +363,7 @@ export class FmStudio extends LitElement {
                 const vars = isSel ? getVars(70) : getVars(0);
                 return html`
                   <button type="button" @click=${() => this.selectMachine(idx)} style="flex:1;height:50px;border:none;background:${tabBg};display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0">
-                    <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="${tabFg}" stroke-linejoin="round" style=${styleMap(vars as any)}>
+                    <svg width="23" height="23" viewBox="0 0 24 24" fill="none" style=${styleMap({ color: tabFg, ...vars as any })}>
                       ${this.renderPaths(m.icon)}
                     </svg>
                   </button>
@@ -385,8 +395,8 @@ export class FmStudio extends LitElement {
                   <div @pointerdown=${(e: PointerEvent) => this.handleDown(e, i, true)} style="display:flex;height:104px;border-radius:5px;overflow:hidden;border:1px solid rgba(0,0,0,.18);cursor:ew-resize;touch-action:pan-y;user-select:none">
                     <div style="flex:1;background:#17170f;padding:11px 12px;display:flex;flex-direction:column;justify-content:space-between">
                       <div style="font:500 10.5px/1.2 'JetBrains Mono',monospace;letter-spacing:.06em;color:#dcd9c6;white-space:pre-line">${m[0]}</div>
-                      <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="#dcd9c6" stroke-linejoin="round" style=${styleMap(vars as any)}>
-                        ${this.renderPaths(m[2] as any[])}
+                      <svg width="38" height="38" viewBox="0 0 24 24" fill="none" style=${styleMap({ color: '#dcd9c6', ...vars as any })}>
+                        ${this.renderPaths((m[2] as (v: number) => any[])(v / 100))}
                       </svg>
                     </div>
                     <div style="width:104px;background:#e6e3d4;padding:11px 12px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end">
