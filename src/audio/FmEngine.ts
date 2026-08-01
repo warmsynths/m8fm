@@ -57,7 +57,7 @@ class Operator {
     pitchEnvDecay: 0.0,
   };
 
-  private currentFreq: number = 440;
+  public currentFreq: number = 440;
   public isModulator: boolean = false;
 
   constructor(ctx: AudioContext, isModulator: boolean = false) {
@@ -320,7 +320,9 @@ export class FmEngine {
     if (!params || params.dest === 'none' || params.amount === 0) return;
     
     lfoOsc.type = params.shape;
+    lfoOsc.frequency.cancelScheduledValues(time);
     lfoOsc.frequency.setValueAtTime(params.freq, time);
+    lfoGain.gain.cancelScheduledValues(time);
     
     // LFO amount is scaled based on destination
     if (params.dest === 'pitch') {
@@ -365,7 +367,7 @@ export class FmEngine {
         else if (dest === 'mod4') this.applyAhdToParam(this.ops[3].modIndexGain.gain, time, this.activeEnv2, this.ops[3].params.level * 2.0);
         else if (dest === 'pitch') {
           this.ops.forEach(op => {
-            const currentFreq = op.osc.frequency.value;
+            const currentFreq = op.currentFreq;
             op.osc.frequency.cancelScheduledValues(time);
             op.osc.frequency.setValueAtTime(currentFreq * (1.0 + this.activeEnv2!.amount), time);
             

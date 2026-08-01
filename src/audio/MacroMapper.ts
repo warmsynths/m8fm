@@ -248,7 +248,7 @@ export class MacroMapper {
         p.operators[0] = { ...defaultOp(), level: 1.0 };
         p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.05 };
         p.operators[2] = { ...defaultOp(), level: 0.5 };
-        p.operators[3] = { ...defaultOp(), ratio: 14.0, level: 0.0 };
+        p.operators[3] = { ...defaultOp(), ratio: 14.0, level: 1.0 };
         
         p.env1 = { attack: 0.01, hold: 0, decay: 2.0, amount: 1.0, dest: 'none' };
         p.env2 = { attack: 0.01, hold: 0, decay: 0.3, amount: 0.05, dest: 'mod4' };
