@@ -59,6 +59,11 @@ export class AudioController {
     this.applyParams();
   }
 
+  public setVolume(value: number) {
+    this.init();
+    this.engine.setVolume(value);
+  }
+
   public loadRawParams(params: FmParams) {
     this.init();
     this.rawParams = params;

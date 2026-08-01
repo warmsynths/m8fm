@@ -41,6 +41,7 @@ export class FmStudio extends LitElement {
   @state() accessor adv = false;
   @state() accessor v: Record<string, number> = {};
   @state() accessor dirty = false;
+  @state() accessor vol = 0.5;
 
   @state() accessor dx7Patches: Dx7Patch[] = [];
   @state() accessor dx7Sel = 0;
@@ -182,6 +183,32 @@ export class FmStudio extends LitElement {
     e.preventDefault();
     this.setVal(index, Math.max(0, Math.min(100, this.getVal(this.sel, index) - e.deltaY * 0.12)));
   }
+
+  handleVolDown(e: PointerEvent) {
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    
+    const p0 = e.clientX;
+    const v0 = this.vol;
+    
+    const move = (ev: PointerEvent) => {
+      const d = (ev.clientX - p0) * 0.005;
+      this.vol = Math.max(0, Math.min(1, v0 + d));
+      audio.setVolume(this.vol);
+    };
+    const up = () => { 
+      window.removeEventListener('pointermove', move); 
+      window.removeEventListener('pointerup', up); 
+    };
+    window.addEventListener('pointermove', move); 
+    window.addEventListener('pointerup', up);
+  }
+
+  handleVolWheel(e: WheelEvent) {
+    e.preventDefault();
+    this.vol = Math.max(0, Math.min(1, this.vol - e.deltaY * 0.001));
+    audio.setVolume(this.vol);
+  }
   
   renderPaths(paths: any[]) {
     const shadow = paths.map(p => svg`<path d="${p.d}" stroke-width="${p.w}" stroke-linecap="${p.c}" stroke-linejoin="${p.c === 'round' ? 'round' : 'miter'}" stroke-dasharray="${p.s}" style="${p.style}" stroke="url(#checker)" transform="translate(1.5, 1.5)" opacity="0.7"></path>`);
@@ -194,9 +221,6 @@ export class FmStudio extends LitElement {
     const mach = MACHINES[mi];
     const pi = this.preset % mach.presets.length;
     const vals = mach.mods.map((_, i) => this.getVal(mi, i));
-    
-    const dirtyMark = (this.dirty ? '*' : '') + mach.presets[pi][0] + ' · SLOT 0' + (pi + 1);
-
     return html`
       <div id="app">
         <svg width="0" height="0" style="position:absolute;visibility:hidden">
@@ -215,8 +239,17 @@ export class FmStudio extends LitElement {
               <div style="width:8px;height:8px;border-radius:50%;background:#17170f"></div>
               <div style="font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.18em">FM LAYER</div>
             </div>
-            <div style="display:flex;align-items:center;gap:8px">
-              <div style="font:400 10px 'JetBrains Mono',monospace;letter-spacing:.1em;color:rgba(0,0,0,.4)">${dirtyMark}</div>
+            <div style="display:flex;align-items:center;gap:12px">
+              <div @pointerdown=${this.handleVolDown} @wheel=${this.handleVolWheel} style="display:flex;align-items:center;gap:8px;padding:5px 9px;border:1px solid rgba(0,0,0,.15);border-radius:4px;cursor:ew-resize;user-select:none;touch-action:none">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#17170f" stroke-width="2">
+                  <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
+                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                </svg>
+                <div style="width:40px;height:4px;background:rgba(23,23,15,.16);border-radius:2px;overflow:hidden">
+                  <div style="height:100%;width:${this.vol * 100}%;background:#17170f"></div>
+                </div>
+                <div style="font:500 10px 'JetBrains Mono',monospace;color:#17170f;width:24px;text-align:right">${Math.round(this.vol * 100)}</div>
+              </div>
               <!-- Hidden DX7 stuff -->
               <input type="file" id="syx-upload" accept=".syx" style="display:none" @change=${this.handleSyxUpload} />
               <button type="button" @click=${() => this.renderRoot.querySelector('#syx-upload')?.dispatchEvent(new MouseEvent('click'))} style="display:none; border:1px solid #101010;background:transparent;color:#101010;padding:8px 13px;border-radius:4px;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.14em;white-space:nowrap">LOAD .SYX</button>

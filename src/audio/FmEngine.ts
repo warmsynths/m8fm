@@ -155,6 +155,7 @@ class Operator {
 export class FmEngine {
   private ctx: AudioContext | null = null;
   private masterGain!: GainNode;
+  private outputGain!: GainNode;
   
   private ops: Operator[] = [];
   
@@ -174,8 +175,11 @@ export class FmEngine {
   public init(audioCtx: AudioContext) {
     this.ctx = audioCtx;
     this.masterGain = this.ctx.createGain();
-    this.masterGain.connect(this.ctx.destination);
+    this.outputGain = this.ctx.createGain();
+    this.masterGain.connect(this.outputGain);
+    this.outputGain.connect(this.ctx.destination);
     this.masterGain.gain.value = 0.5; // Master volume headroom
+    this.outputGain.gain.value = 0.5; // Default user volume
 
     // Create 6 operators
     this.ops = Array.from({ length: 6 }, () => new Operator(this.ctx!, true));
@@ -278,6 +282,12 @@ export class FmEngine {
   public setOperatorParam(opIndex: number, param: keyof OperatorParams, value: number) {
     if (opIndex < 0 || opIndex >= this.ops.length) return;
     this.ops[opIndex].params[param] = value;
+  }
+
+  public setVolume(val: number) {
+    if (this.outputGain) {
+      this.outputGain.gain.setTargetAtTime(val, this.ctx?.currentTime || 0, 0.01);
+    }
   }
 
   public setFeedback(amount: number) {
