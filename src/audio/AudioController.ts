@@ -15,18 +15,40 @@ export class AudioController {
   private serializer = new M8Serializer();
   private isInitialized = false;
   private rawParams: FmParams | null = null;
+  private ctx: AudioContext | null = null;
 
   constructor() {
+    this.attachGestureListeners();
     this.attachKeyboardListeners();
   }
 
   public init() {
-    if (this.isInitialized) return;
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    const ctx = new AudioContextClass();
-    this.engine.init(ctx);
-    this.isInitialized = true;
-    console.log('Audio initialized!');
+    if (!this.ctx) {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      this.ctx = new AudioContextClass();
+      this.engine.init(this.ctx);
+      this.isInitialized = true;
+      console.log('Audio initialized!');
+    }
+    this.resume();
+  }
+
+  public resume() {
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume().catch((err) => {
+        console.warn('Failed to resume AudioContext:', err);
+      });
+    }
+  }
+
+  private attachGestureListeners() {
+    const handleGesture = () => {
+      this.init();
+    };
+    window.addEventListener('pointerdown', handleGesture, { passive: true });
+    window.addEventListener('keydown', handleGesture, { passive: true });
+    window.addEventListener('touchstart', handleGesture, { passive: true });
+    window.addEventListener('click', handleGesture, { passive: true });
   }
 
   private attachKeyboardListeners() {
