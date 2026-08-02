@@ -19,9 +19,6 @@ function patchM8JsPlugin(): Plugin {
 export default defineConfig({
   base: './',
   plugins: [patchM8JsPlugin()],
-  esbuild: {
-    keepNames: true,
-  },
   build: {
     outDir: 'docs',
   },
