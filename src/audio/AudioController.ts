@@ -98,6 +98,10 @@ export class AudioController {
     this.engine.applyParams(params);
   }
 
+  public getFmParams(): FmParams {
+    return this.rawParams || this.mapper.getComputedFmParams();
+  }
+
   public exportPatch(filename: string) {
     const params = this.rawParams || this.mapper.getComputedFmParams();
     this.serializer.downloadM8Instrument(filename, params);

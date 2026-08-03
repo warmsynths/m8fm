@@ -5,7 +5,7 @@ import { styleMap } from 'lit/directives/style-map.js';
 import './style.css';
 import { AudioController } from './audio/AudioController';
 import { AnchorMacroConfig, type AnchorName } from './audio/MacroMapper';
-import { MACHINES, FM_NAMES } from './ui/MachineData';
+import { MACHINES } from './ui/MachineData';
 import { SysExParser, type Dx7Patch } from './audio/SysExParser';
 import { DX7ToM8Translator } from './audio/DX7ToM8Translator';
 
@@ -38,9 +38,10 @@ export class FmStudio extends LitElement {
 
   @state() accessor sel = 0;
   @state() accessor preset = 0;
-  @state() accessor adv = false;
   @state() accessor v: Record<string, number> = {};
   @state() accessor dirty = false;
+  @state() accessor adv = false;
+  @state() accessor advMod = false;
   @state() accessor vol = 0.5;
 
   @state() accessor dx7Patches: Dx7Patch[] = [];
@@ -347,17 +348,17 @@ export class FmStudio extends LitElement {
                     <div @pointerdown=${(e: PointerEvent) => this.handleDown(e, i, false)} @wheel=${(e: WheelEvent) => this.handleWheel(e, i)} style="display:flex;border-radius:5px;overflow:hidden;border:1px solid rgba(0,0,0,.18);cursor:ns-resize;touch-action:none;user-select:none;min-height:75px">
                       <div style="flex:1;background:#17170f;padding:13px;display:flex;flex-direction:column;justify-content:space-between">
                         <div>
-                          <div style="font:500 11.5px/1.2 'JetBrains Mono',monospace;letter-spacing:.06em;color:#dcd9c6;white-space:pre-line">${m[0]}</div>
-                          <div style="font:400 10px/1.45 'Space Grotesk',sans-serif;color:rgba(220,217,198,.42);margin-top:6px">${m[1]}</div>
+                          <div style="font:500 12.5px/1.2 'JetBrains Mono',monospace;letter-spacing:.06em;color:#dcd9c6;white-space:pre-line">MOD${i + 1}</div>
+                          <div style="font:400 9px/1.45 'Space Grotesk',sans-serif;color:rgba(220,217,198,.42);margin-top:2px;text-transform:uppercase">${m[0]}</div>
                         </div>
                         <svg width="42" height="42" viewBox="0 0 24 24" fill="none" style=${styleMap({ color: '#dcd9c6', ...vars as any })}>
                           ${this.renderPaths((m[2] as (v: number) => any[])(v / 100))}
                         </svg>
                       </div>
                       <div style="width:104px;background:#e6e3d4;padding:13px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end">
-                        <div style="font:700 30px/1 'JetBrains Mono',monospace;letter-spacing:-.02em;color:#17170f">${v.toFixed(1)}</div>
+                        <div style="font:700 30px/1 'JetBrains Mono',monospace;letter-spacing:-.02em;color:#17170f">${(i => { const toHex = (v: number) => Math.min(128, Math.round(v * 128)).toString(16).toUpperCase().padStart(2, '0'); return toHex(v / 100); })(i)}</div>
                         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;width:100%">
-                          <div style="font:500 11px 'JetBrains Mono',monospace;color:rgba(23,23,15,.45)">${fmLabel}</div>
+                          <div style="font:500 11px 'JetBrains Mono',monospace;color:rgba(23,23,15,.45)">${v.toFixed(1)}%</div>
                           <div style="width:100%;height:5px;background:rgba(23,23,15,.16)"><div style="height:5px;width:${pct};background:#17170f"></div></div>
                         </div>
                       </div>
@@ -371,14 +372,154 @@ export class FmStudio extends LitElement {
               </button>
               
               ${this.adv ? html`
-                <div style="flex:none;padding:13px 15px;background:#17170f;border-radius:5px;display:flex;gap:24px">
-                  ${FM_NAMES.map((n, i) => {
-                    const val = i === 0 ? 'FM' + (1 + (mi % 4)) : ((vals[i % vals.length] * (0.7 + i * 0.12)) % 100).toFixed(1);
-                    return html`
-                      <div><div style="font:400 9px 'JetBrains Mono',monospace;letter-spacing:.14em;color:rgba(220,217,198,.45)">${n}</div><div style="font:500 16px 'JetBrains Mono',monospace;color:#dcd9c6;margin-top:4px">${val}</div></div>
+                ${(() => {
+                  const fm = audio.getFmParams();
+                  const algoStr = fm.algorithm === 1 ? 'A>B>C>D' : fm.algorithm === 2 ? 'A>B+C>D' : 'A+B+C>D';
+                  const m8Ops = [fm.operators[3], fm.operators[2], fm.operators[1], fm.operators[0]];
+                  const getShapeStr = (shape?: string) => {
+                    if (shape === 'square') return 'SQU';
+                    if (shape === 'sawtooth') return 'SAW';
+                    if (shape === 'triangle') return 'TRI';
+                    return 'SIN';
+                  };
+                  const toHex = (v: number) => Math.min(128, Math.round(v * 128)).toString(16).toUpperCase().padStart(2, '0');
+                  
+                  return html`
+                    <div style="flex:none;padding:16px 24px;background:#17170f;border-radius:5px;font:500 14px/24px 'JetBrains Mono',monospace;color:#dcd9c6;letter-spacing:0.02em">
+                      
+                      <!-- Algo Row -->
+                      <div style="display:flex">
+                        <div style="width:84px;color:rgba(220,217,198,.45)">ALGO</div>
+                        <div>${algoStr}</div>
+                      </div>
+
+                      <!-- Spacer Row -->
+                      <div style="height:24px"></div>
+
+                      <!-- Operators Header Row -->
+                      <div style="display:flex">
+                        <div style="width:84px"></div>
+                        ${m8Ops.map((op, i) => html`
+                          <div style="width:72px">${['A','B','C','D'][i]} <span style="color:rgba(220,217,198,.45)">${getShapeStr(op.shape)}</span></div>
+                        `)}
+                      </div>
+
+                      <!-- Ratio Row -->
+                      <div style="display:flex">
+                        <div style="width:84px;color:rgba(220,217,198,.45)">RATIO</div>
+                        ${m8Ops.map(op => html`
+                          <div style="width:72px">${op.ratio.toFixed(2).padStart(5, '0')}</div>
+                        `)}
+                      </div>
+
+                      <!-- Lev/FB Row -->
+                      <div style="display:flex">
+                        <div style="width:84px;color:rgba(220,217,198,.45)">LEV/FB</div>
+                        ${m8Ops.map((op, i) => html`
+                          <div style="width:72px">00<span style="color:rgba(220,217,198,.45)">/${i === 3 ? toHex(fm.feedback) : '00'}</span></div>
+                        `)}
+                      </div>
+
+                      <!-- MOD Row -->
+                      <div style="display:flex">
+                        <div style="width:84px;color:rgba(220,217,198,.45)">MOD</div>
+                        ${m8Ops.map((_, i) => html`
+                          <div style="width:72px;color:#4df0cd">${i+1}&gt;LEV</div>
+                        `)}
+                      </div>
+                      
+                      <!-- Separator -->
+                      <div style="height:1px;background:rgba(220,217,198,.1);margin:16px 0"></div>
+
+                      <!-- Macros Section -->
+                      <div style="display:flex;gap:110px">
+                        
+                        <!-- Left Column -->
+                        <div>
+                          <div style="display:flex"><div style="width:68px;color:rgba(220,217,198,.45)">MOD1</div><div>${toHex(this.getVal(this.sel, 0) / 100)}<span style="color:rgba(220,217,198,.3)">|</span></div></div>
+                          <div style="display:flex"><div style="width:68px;color:rgba(220,217,198,.45)">MOD2</div><div>${toHex(this.getVal(this.sel, 1) / 100)}<span style="color:rgba(220,217,198,.3)">|</span></div></div>
+                          <div style="display:flex"><div style="width:68px;color:rgba(220,217,198,.45)">MOD3</div><div>${toHex(this.getVal(this.sel, 2) / 100)}<span style="color:rgba(220,217,198,.3)">|---</span></div></div>
+                          <div style="display:flex"><div style="width:68px;color:rgba(220,217,198,.45)">MOD4</div><div>${toHex(this.getVal(this.sel, 3) / 100)}<span style="color:rgba(220,217,198,.3)">|</span></div></div>
+                          <div style="display:flex"><div style="width:68px;color:rgba(220,217,198,.45)">FILTER</div><div>00<span style="font-size:10px">OFF</span></div></div>
+                          <div style="display:flex"><div style="width:68px;color:rgba(220,217,198,.45)">CUTOFF</div><div>FF<span style="color:rgba(220,217,198,.3)">|---</span></div></div>
+                          <div style="display:flex"><div style="width:68px;color:rgba(220,217,198,.45)">RES</div><div>00<span style="color:rgba(220,217,198,.3)">|</span></div></div>
+                        </div>
+
+                        <!-- Right Column -->
+                        <div>
+                          <div style="display:flex"><div style="width:48px;color:rgba(220,217,198,.45)">AMP</div><div>00<span style="color:rgba(220,217,198,.3)">|</span></div></div>
+                          <div style="display:flex"><div style="width:48px;color:rgba(220,217,198,.45)">LIM</div><div>00<span style="font-size:10px">CLIP</span></div></div>
+                          <div style="display:flex"><div style="width:48px;color:rgba(220,217,198,.45)">PAN</div><div>80<span style="color:rgba(220,217,198,.3)"> |</span></div></div>
+                          <div style="display:flex"><div style="width:48px;color:rgba(220,217,198,.45)">DRY</div><div>C0<span style="color:rgba(220,217,198,.3)">|---</span></div></div>
+                          <div style="display:flex"><div style="width:48px;color:rgba(220,217,198,.45)">CHO</div><div>00<span style="color:rgba(220,217,198,.3)">|</span></div></div>
+                          <div style="display:flex"><div style="width:48px;color:rgba(220,217,198,.45)">DEL</div><div>00<span style="color:rgba(220,217,198,.3)">|</span></div></div>
+                          <div style="display:flex"><div style="width:48px;color:rgba(220,217,198,.45)">REV</div><div>00<span style="color:rgba(220,217,198,.3)">|</span></div></div>
+                        </div>
+
+                      </div>
+                    </div>
+                  `;
+                })()}
+              ` : nothing}
+
+              <button type="button" @click=${() => this.advMod = !this.advMod} style="flex:none;background:none;border:none;padding:0;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.5);display:flex;align-items:center;gap:7px">
+                <span style="display:inline-block;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;transform:rotate(${this.advMod ? '90deg' : '0deg'})"></span>MODULATION PAGE (OPTION+UP)
+              </button>
+
+              ${this.advMod ? html`
+                ${(() => {
+                  const fm = audio.getFmParams();
+                  const m8Ops = [fm.operators[3], fm.operators[2], fm.operators[1], fm.operators[0]];
+                  const toHex = (v: number) => Math.min(128, Math.round(v * 128)).toString(16).toUpperCase().padStart(2, '0');
+                  
+                  const renderAdsr = (modNum: number, op: any) => {
+                    const atkPct = Math.min(1, op.attack ?? 0);
+                    const decPct = Math.min(1, op.decay ?? 0);
+                    const susPct = Math.min(1, op.sustain ?? 0);
+                    const relPct = Math.min(1, op.release ?? 0);
+                    const amtPct = Math.min(1, op.level ?? 1);
+                    
+                    const renderRow = (label: string, val: string, pct?: number, isCyan: boolean = false) => html`
+                      <div style="display:flex;height:14px;align-items:center">
+                        <span style="width:52px;color:rgba(220,217,198,.45)">${label}</span>
+                        <span style="color:${isCyan ? '#4df0cd' : '#dcd9c6'};display:flex;align-items:center">
+                          ${val}
+                          ${pct !== undefined 
+                            ? (pct > 0 
+                              ? html`<div style="width:42px;height:8px;background:#4df0cd;margin-left:2px;transform-origin:left;transform:scaleX(${pct})"></div>`
+                              : html`<span style="color:rgba(220,217,198,.3)">|</span>`) 
+                            : nothing
+                          }
+                        </span>
+                      </div>
                     `;
-                  })}
-                </div>
+
+                    return html`
+                      <div style="flex:1;display:flex;flex-direction:column;gap:3px;font:500 13px 'JetBrains Mono',monospace;text-transform:uppercase">
+                        ${renderRow(`MOD${modNum}`, 'ADSR ENV', undefined, true)}
+                        ${renderRow('DEST', 'OFF')}
+                        ${renderRow('AMT', toHex(op.level), amtPct)}
+                        ${renderRow('ATK', toHex((op.attack ?? 0) * 10), atkPct)}
+                        ${renderRow('DEC', toHex((op.decay ?? 0) * 10), decPct)}
+                        ${renderRow('SUS', toHex((op.sustain ?? 0)), susPct)}
+                        ${renderRow('REL', toHex((op.release ?? 0) * 10), relPct)}
+                      </div>
+                    `;
+                  };
+                  
+                  return html`
+                    <div style="flex:none;padding:16px 18px;background:#17170f;border-radius:5px;display:flex;flex-direction:column;gap:24px">
+                      <div style="display:flex;gap:32px">
+                        ${renderAdsr(1, m8Ops[0])}
+                        ${renderAdsr(3, m8Ops[2])}
+                      </div>
+                      <div style="display:flex;gap:32px">
+                        ${renderAdsr(2, m8Ops[1])}
+                        ${renderAdsr(4, m8Ops[3])}
+                      </div>
+                    </div>
+                  `;
+                })()}
               ` : nothing}
             </div>
           </div>

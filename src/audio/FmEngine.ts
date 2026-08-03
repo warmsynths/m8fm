@@ -22,6 +22,7 @@ export interface LfoParams {
 export interface OperatorParams {
   ratio: number;
   level: number;
+  shape?: OscillatorType;
   attack?: number;
   decay?: number;
   sustain?: number;
@@ -289,9 +290,12 @@ export class FmEngine {
     }
   }
 
-  public setOperatorParam(opIndex: number, param: keyof OperatorParams, value: number) {
+  public setOperatorParam(opIndex: number, param: keyof OperatorParams, value: any) {
     if (opIndex < 0 || opIndex >= this.ops.length) return;
     this.ops[opIndex].params[param] = value;
+    if (param === 'shape' && value) {
+      this.ops[opIndex].osc.type = value as OscillatorType;
+    }
   }
 
   public setVolume(val: number) {
@@ -451,6 +455,7 @@ export class FmEngine {
       const op = params.operators[i];
       this.setOperatorParam(i, 'ratio', op.ratio);
       this.setOperatorParam(i, 'level', op.level);
+      if (op.shape) this.setOperatorParam(i, 'shape', op.shape);
       // Optional legacy params
       if (op.attack !== undefined) this.setOperatorParam(i, 'attack', op.attack);
       if (op.decay !== undefined) this.setOperatorParam(i, 'decay', op.decay);
