@@ -1,4 +1,24 @@
-import type { FmParams, OperatorParams, EnvParams, LfoParams } from './FmEngine';
+import {
+  DEST_CUTOFF,
+  DEST_MOD1,
+  DEST_MOD2,
+  DEST_PITCH,
+  DEST_VOLUME,
+  FILTER_LOWPASS,
+  FILTER_OFF,
+  LFO_RAMP_DN,
+  LFO_SIN,
+  LFO_SQU_DN,
+  LFO_TRI,
+  MOD_TARGET_LEV,
+  OSC_SIN,
+  clampByte,
+  clonePatch,
+  createDefaultPatch,
+  encodeModSlot,
+  multiplierToRatio
+} from './M8Patch';
+import type { M8Patch } from './M8Patch';
 
 export type AnchorName = 'Electric Piano' | 'Sub Bass' | 'Mallet' | 'Pad' | 'Digital Glitch' | 'Vintage Lead';
 
@@ -11,331 +31,298 @@ export const AnchorMacroConfig: Record<AnchorName, string[]> = {
   'Vintage Lead': ['Timbre', 'Filter Cutoff', 'Filter Envelope', 'Analog Slop']
 };
 
+/** MOD slot value for "MOD bus n modulates my LEVEL". */
+const busToLevel = (bus: number) => encodeModSlot(bus, MOD_TARGET_LEV);
+
+/** Linear interpolation between two raw M8 values. */
+function lerpByte(from: number, to: number, t: number): number {
+  return clampByte(from + (to - from) * t);
+}
+
+function setRatio(patch: M8Patch, opIndex: number, multiplier: number) {
+  const { ratio, ratioFine } = multiplierToRatio(multiplier);
+  patch.operators[opIndex].ratio = ratio;
+  patch.operators[opIndex].ratioFine = ratioFine;
+}
+
+/**
+ * Produces M8 FMSYNTH patches from a handful of high level macros.
+ *
+ * Everything it emits is in raw M8 units, so the patch this returns is
+ * simultaneously what the UI prints, what the .m8i export writes, and what the
+ * audio engine renders. The macros only ever nudge raw values around.
+ */
 export class MacroMapper {
-  private baseParams: FmParams;
-  private currentParams: FmParams;
+  private basePatch: M8Patch;
+  private currentPatch: M8Patch;
   private macroState: Record<string, number> = {};
   private currentAnchor: AnchorName;
 
   constructor(initialAnchor: AnchorName = 'Electric Piano') {
     this.currentAnchor = initialAnchor;
-    this.baseParams = this.getAnchorParams(this.currentAnchor);
-    this.currentParams = JSON.parse(JSON.stringify(this.baseParams));
+    this.basePatch = MacroMapper.getAnchorPatch(initialAnchor);
+    this.currentPatch = clonePatch(this.basePatch);
+    // Resolve the macros straight away so getPatch() never returns a patch that
+    // differs from what the first setMacro() call would produce.
+    this.updatePatch();
   }
 
   public loadAnchor(anchorName: AnchorName) {
     this.currentAnchor = anchorName;
-    this.baseParams = this.getAnchorParams(anchorName);
+    this.basePatch = MacroMapper.getAnchorPatch(anchorName);
     this.macroState = {};
-    this.updateParams();
+    this.updatePatch();
   }
 
   public setMacro(macroName: string, normalizedValue: number) {
     this.macroState[macroName] = Math.max(0, Math.min(1, normalizedValue));
-    this.updateParams();
+    this.updatePatch();
   }
 
-  public getComputedFmParams(): FmParams {
-    return this.currentParams;
+  public getPatch(): M8Patch {
+    return this.currentPatch;
   }
 
-  private updateParams() {
-    const params: FmParams = JSON.parse(JSON.stringify(this.baseParams));
+  private macro(name: string): number {
+    return this.macroState[name] ?? 0;
+  }
+
+  private updatePatch() {
+    const patch = clonePatch(this.basePatch);
 
     switch (this.currentAnchor) {
-      case 'Electric Piano':
-        this.applyElectricPianoMath(params);
-        break;
-      case 'Sub Bass':
-        this.applySubBassMath(params);
-        break;
-      case 'Mallet':
-        this.applyMalletMath(params);
-        break;
-      case 'Pad':
-        this.applyPadMath(params);
-        break;
-      case 'Digital Glitch':
-        this.applyDigitalGlitchMath(params);
-        break;
-      case 'Vintage Lead':
-        this.applyVintageLeadMath(params);
-        break;
+      case 'Electric Piano': this.applyElectricPiano(patch); break;
+      case 'Sub Bass': this.applySubBass(patch); break;
+      case 'Mallet': this.applyMallet(patch); break;
+      case 'Pad': this.applyPad(patch); break;
+      case 'Digital Glitch': this.applyDigitalGlitch(patch); break;
+      case 'Vintage Lead': this.applyVintageLead(patch); break;
     }
 
-    this.currentParams = params;
+    this.currentPatch = patch;
   }
 
-  private getMacroVal(name: string): number {
-    return this.macroState[name] || 0.0;
+  private applyElectricPiano(patch: M8Patch) {
+    // Tine material walks the modulator up the harmonic series: 3:1 is the
+    // classic MK1 tine, higher integers get glassier.
+    setRatio(patch, 0, 3 + Math.floor(this.macro('Tine Material') * 4));
+
+    // Strike force is the tine transient depth plus how open the filter sits.
+    const strike = this.macro('Strike Force');
+    patch.envelopes[1].amount = lerpByte(0x50, 0x98, strike);
+    patch.filter.cutoff = lerpByte(0xbc, 0xe8, strike);
+
+    // Bark is standing modulation depth and how long the transient rings.
+    const bark = this.macro('Bark');
+    patch.operators[0].level = lerpByte(0x28, 0x70, bark);
+    patch.envelopes[1].decay = lerpByte(0x30, 0x60, bark);
+
+    const tremolo = this.macro('Tremolo Depth');
+    patch.lfos[0].amount = lerpByte(0x00, 0x60, tremolo);
+    patch.lfos[0].freq = lerpByte(0xb8, 0xd8, tremolo);
   }
 
-  private applyElectricPianoMath(params: FmParams) {
-    const tine = this.getMacroVal('Tine Material');
-    // Tine material morphs modulator ratio from 3.0 (Classic MK1 baseline) up to 7.0 (glassy tine overtones)
-    params.operators[0].ratio = 3.0 + Math.floor(tine * 4.0);
+  private applySubBass(patch: M8Patch) {
+    const weight = this.macro('Sub Weight');
+    patch.operators[3].level = lerpByte(0xa8, 0xe8, weight);
 
-    const strike = this.getMacroVal('Strike Force');
-    // Strike force controls the transient attack envelope depth and filter cutoff
-    if (params.env2) {
-      params.env2.amount = 0.5 + strike * 0.5;
-    }
-    if (params.filter) {
-      params.filter.cutoff = 0.70 + strike * 0.25;
-    }
+    const growl = this.macro('Top-End Growl');
+    patch.operators[0].level = lerpByte(0x18, 0x78, growl);
+    patch.operators[1].level = lerpByte(0x40, 0x88, growl);
+    patch.operators[0].feedback = lerpByte(0x00, 0x40, growl);
 
-    const bark = this.getMacroVal('Bark');
-    params.feedback = 0.0; // Strictly 00 hex - pure sine PM for silky piano timbre
-    // Bark controls modulator level & envelope decay duration
-    params.operators[0].level = 0.35 + bark * 0.30;
-    if (params.env2) {
-      params.env2.decay = 0.06 + bark * 0.15;
-    }
+    const snap = this.macro('Pitch Snap');
+    patch.envelopes[1].amount = lerpByte(0x00, 0x40, snap);
+    patch.envelopes[1].decay = lerpByte(0x18, 0x40, snap);
 
-    const tremolo = this.getMacroVal('Tremolo Depth');
-    if (params.lfo1) {
-      params.lfo1.dest = 'volume';
-      params.lfo1.amount = tremolo * 0.6;
-      params.lfo1.freq = 3.5 + tremolo * 4.0;
-    }
+    const boom = this.macro('Boom');
+    patch.envelopes[0].hold = lerpByte(0x00, 0x50, boom);
+    patch.envelopes[0].decay = lerpByte(0x78, 0xc0, boom);
   }
 
-  private applySubBassMath(params: FmParams) {
-    const weight = this.getMacroVal('Sub Weight');
-    params.operators[1].level += weight * 0.15;
-
-    const growl = this.getMacroVal('Top-End Growl');
-    if (growl > 0) {
-      params.operators[3].ratio = 2.0 + Math.floor(growl * 2.0);
-      params.operators[3].level += growl * 0.15;
-      params.feedback += growl * 0.05;
-    }
-
-    const pitchSnap = this.getMacroVal('Pitch Snap');
-    const boom = this.getMacroVal('Boom');
-    
-    if (params.env2) {
-      if (pitchSnap > 0) {
-        params.env2.dest = 'pitch';
-        params.env2.amount = pitchSnap * 0.8;
-        params.env2.decay = 0.02 + (1.0 - pitchSnap) * 0.1;
-      } else if (boom > 0) {
-        params.env2.dest = 'mod3';
-        params.env2.amount = boom * 0.3;
-        params.env2.decay = 0.02 + boom * 0.08;
-      } else {
-        params.env2.amount = 0;
-      }
-    }
-  }
-
-  private applyMalletMath(params: FmParams) {
-    const focus = this.getMacroVal('Harmonic Focus');
-    if (focus < 0.33) {
-      params.operators[1].ratio = 2.0;
-      params.operators[2].ratio = 3.0;
-    } else if (focus < 0.66) {
-      params.operators[1].ratio = 2.0;
-      params.operators[2].ratio = 4.0;
+  private applyMallet(patch: M8Patch) {
+    // Harmonic focus steps between inharmonic (wooden), harmonic (bell) and
+    // wide-interval (glassy) modulator pairs.
+    const focus = this.macro('Harmonic Focus');
+    if (focus < 0.34) {
+      setRatio(patch, 0, 3.5);
+      setRatio(patch, 2, 5.0);
+    } else if (focus < 0.67) {
+      setRatio(patch, 0, 2.0);
+      setRatio(patch, 2, 9.0);
     } else {
-      params.operators[1].ratio = 3.0;
-      params.operators[2].ratio = 5.0;
+      setRatio(patch, 0, 7.0);
+      setRatio(patch, 2, 11.0);
     }
 
-    const dampening = this.getMacroVal('Dampening');
-    if (params.env1) {
-      params.env1.decay *= (0.2 + (1.0 - dampening) * 0.8);
-    }
-    if (params.env2) {
-      params.env2.decay *= (0.2 + (1.0 - dampening) * 0.8);
-    }
+    const dampening = this.macro('Dampening');
+    patch.envelopes[0].decay = lerpByte(0xa0, 0x48, dampening);
+    patch.envelopes[1].decay = lerpByte(0x50, 0x28, dampening);
 
-    const impact = this.getMacroVal('Impact Noise');
-    if (params.env2) {
-      params.env2.amount = impact * 0.15;
-    }
+    const impact = this.macro('Impact Noise');
+    patch.operators[2].level = lerpByte(0x10, 0x60, impact);
+    patch.operators[2].feedback = lerpByte(0x00, 0x70, impact);
   }
 
-  private applyPadMath(params: FmParams) {
-    const wash = this.getMacroVal('Wash');
-    const attackTime = 0.1 + (wash * 2.9);
-    if (params.env1) params.env1.attack = attackTime;
-    if (params.env2) params.env2.attack = attackTime * 1.5;
+  private applyPad(patch: M8Patch) {
+    const wash = this.macro('Wash');
+    patch.envelopes[0].attack = lerpByte(0x50, 0xb0, wash);
+    patch.envelopes[0].decay = lerpByte(0xa0, 0xe0, wash);
+    patch.envelopes[1].attack = lerpByte(0x60, 0xc0, wash);
 
-    const shimmer = this.getMacroVal('Shimmer');
-    params.operators[3].ratio = shimmer > 0.5 ? 8.0 : 4.0;
-    if (params.env2) {
-      params.env2.amount = shimmer * 0.15;
-    }
+    const shimmer = this.macro('Shimmer');
+    setRatio(patch, 2, shimmer > 0.5 ? 8 : 4);
+    patch.operators[2].level = lerpByte(0x18, 0x50, shimmer);
 
-    const chorus = this.getMacroVal('Chorus');
-    if (params.lfo1 && chorus > 0) {
-      params.lfo1.dest = 'pitch';
-      params.lfo1.amount = chorus * 0.01;
-      params.lfo1.freq = 0.5 + chorus * 2.0;
-    }
+    const chorus = this.macro('Chorus');
+    patch.mixer.cho = lerpByte(0x40, 0xf0, chorus);
+    patch.lfos[0].amount = lerpByte(0x04, 0x14, chorus);
 
-    const hollow = this.getMacroVal('Hollow');
-    if (hollow > 0) {
-      params.operators[1].ratio = 1.0 + hollow * 1.0; 
-      params.operators[1].level += hollow * 0.1; 
-      params.operators[0].level = 0.8 - hollow * 0.2;
-    }
+    // Hollow detunes the second carrier away from the first, thinning the core.
+    const hollow = this.macro('Hollow');
+    setRatio(patch, 3, 1 + hollow * 0.5);
+    patch.operators[1].level = lerpByte(0xc0, 0x90, hollow);
   }
 
-  private applyDigitalGlitchMath(params: FmParams) {
-    const dirt = this.getMacroVal('Digital Dirt');
-    params.feedback = dirt * 0.4;
+  private applyDigitalGlitch(patch: M8Patch) {
+    const dirt = this.macro('Digital Dirt');
+    patch.operators[0].feedback = lerpByte(0x10, 0xd0, dirt);
 
-    const zap = this.getMacroVal('Laser Zap');
-    if (params.env2) {
-      params.env2.amount = zap * 4.0;
-      params.env2.decay = 0.05 + ((1.0 - zap) * 0.2);
-    }
+    const zap = this.macro('Laser Zap');
+    patch.envelopes[1].amount = lerpByte(0x10, 0x90, zap);
+    patch.envelopes[1].decay = lerpByte(0x50, 0x20, zap);
 
-    const pw = this.getMacroVal('Pulse Width');
-    if (params.lfo1 && pw > 0) {
-      params.lfo1.dest = 'mod1';
-      params.lfo1.amount = pw * 0.5;
-      params.lfo1.freq = 1.0 + pw * 10.0;
-    }
+    const pw = this.macro('Pulse Width');
+    patch.lfos[1].amount = lerpByte(0x00, 0x70, pw);
+    patch.lfos[1].freq = lerpByte(0x90, 0xe8, pw);
   }
 
-  private applyVintageLeadMath(params: FmParams) {
-    const timbre = this.getMacroVal('Timbre');
-    
-    if (timbre < 0.5) {
-      params.operators[1].ratio = 1.0;
-      params.feedback = (timbre * 2) * 0.15;
-    } else {
-      const squareBlend = (timbre - 0.5) * 2;
-      params.operators[1].ratio = 1.0 + squareBlend * 1.0;
-      params.feedback = 0.15 - (squareBlend * 0.15);
-    }
+  private applyVintageLead(patch: M8Patch) {
+    // Timbre sweeps from a soft single-modulator tone to a stacked, fed-back one.
+    const timbre = this.macro('Timbre');
+    patch.operators[0].level = lerpByte(0x50, 0x90, timbre);
+    patch.operators[1].level = lerpByte(0x28, 0x60, timbre);
+    patch.operators[3].feedback = lerpByte(0x18, 0x70, timbre);
 
-    const cutoff = this.getMacroVal('Filter Cutoff');
-    const filterEnv = this.getMacroVal('Filter Envelope');
+    patch.filter.cutoff = lerpByte(0x60, 0xf0, this.macro('Filter Cutoff'));
 
-    params.operators[1].level = cutoff * 0.25;
-    
-    if (params.env2) {
-      params.env2.amount = filterEnv * 0.2;
-      params.env2.decay = 0.01 + filterEnv * 0.8;
-      params.env2.hold = 0; 
-    }
+    const filterEnv = this.macro('Filter Envelope');
+    patch.envelopes[1].amount = lerpByte(0x00, 0x70, filterEnv);
+    patch.envelopes[1].decay = lerpByte(0x60, 0xc0, filterEnv);
 
-    const slop = this.getMacroVal('Analog Slop');
-    if (params.lfo1 && slop > 0) {
-      params.lfo1.dest = 'pitch';
-      params.lfo1.amount = slop * 0.02;
-      params.lfo1.freq = 0.1 + slop * 1.5;
-      params.lfo1.shape = 'sine';
-    }
+    const slop = this.macro('Analog Slop');
+    patch.lfos[0].amount = lerpByte(0x00, 0x18, slop);
+    patch.lfos[0].freq = lerpByte(0x88, 0xc8, slop);
   }
 
-  private getAnchorParams(anchor: AnchorName): FmParams {
-    const defaultOp = (): OperatorParams => ({ ratio: 1, level: 0.0 });
-    const defaultEnv = (): EnvParams => ({ attack: 0.01, hold: 999, decay: 0.1, amount: 1.0, dest: 'none' });
-    const defaultLfo = (): LfoParams => ({ shape: 'sine', freq: 1.0, amount: 0.0, dest: 'none' });
-
-    const p: FmParams = {
-      algorithm: 1,
-      feedback: 0.0,
-      operators: [defaultOp(), defaultOp(), defaultOp(), defaultOp()],
-      env1: defaultEnv(),
-      env2: defaultEnv(),
-      lfo1: defaultLfo(),
-      lfo2: defaultLfo()
-    };
+  /**
+   * The starting point for each machine, written the way you would enter it on
+   * the device.
+   *
+   * Every one of these has an envelope on VOLUME. On the M8 an FMSYNTH has no
+   * implicit amplitude envelope: with nothing aimed at VOLUME (or at a carrier's
+   * LEVEL through a MOD bus) the operators simply run flat out for as long as
+   * the note is held, which is what turns an otherwise reasonable patch into a
+   * continuous buzz.
+   */
+  public static getAnchorPatch(anchor: AnchorName): M8Patch {
+    const patch = createDefaultPatch();
 
     switch (anchor) {
       case 'Electric Piano':
-        p.algorithm = 9; // M8 Algo 08: [A>B] + [A>C] + [A>D] (E PIANO07)
-        p.operators[0] = { ...defaultOp(), ratio: 3.0, level: 0.50, modA: 2, modB: 0 };  // Op A (Modulator) ratio 3.00, level 128 (80 hex), 2▸LEV
-        p.operators[1] = { ...defaultOp(), ratio: 0.50, level: 0.408, modA: 0, modB: 0 }; // Op B (Sub Carrier) ratio 0.50, level 104 (68 hex)
-        p.operators[2] = { ...defaultOp(), ratio: 1.50, level: 0.533, modA: 0, modB: 0 }; // Op C (5th Overtone Carrier) ratio 1.50, level 136 (88 hex)
-        p.operators[3] = { ...defaultOp(), ratio: 1.00, level: 0.565, modA: 0, modB: 0 }; // Op D (Root Pitch Carrier) ratio 1.00, level 144 (90 hex)
-        p.feedback = 0.0;
-        
-        p.env1 = { attack: 0.001, hold: 0, decay: 0.125, amount: 1.0, dest: 'mod1' };
-        p.env2 = { attack: 0.001, hold: 0, decay: 0.094, amount: 1.0, dest: 'mod2' };
-        p.lfo1 = { shape: 'triangle', freq: 5.5, amount: 0.35, dest: 'volume' };
-        p.lfo2 = { shape: 'triangle', freq: 1.0, amount: 0.0, dest: 'none' };
-        p.filter = { type: 'lowpass', cutoff: 0.81, res: 0.0 };
-        p.chorus = 0.63;
+        patch.name = 'M8FM EP';
+        patch.algo = 0x08; // [A>B]+[A>C]+[A>D]
+        patch.mods = [0x00, 0x20, 0x00, 0x00];
+        // Op A: the tine. A 3:1 sine modulator hitting all three carriers. Its
+        // standing LEVEL is deliberately low -- almost all of the brightness
+        // comes and goes with the ENV2 strike below, which is what makes a
+        // Rhodes a bright ping over a near-sine body rather than a constant
+        // metallic ring.
+        patch.operators[0] = { shape: OSC_SIN, ratio: 3, ratioFine: 0, level: 0x40, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
+        // Op B: sub-octave body.
+        patch.operators[1] = { shape: OSC_SIN, ratio: 0, ratioFine: 50, level: 0x68, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        // Op C: the fifth. Kept well under the root -- at parity it stops
+        // reading as an overtone and starts reading as an organ.
+        patch.operators[2] = { shape: OSC_SIN, ratio: 1, ratioFine: 50, level: 0x38, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        // Op D: root.
+        patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x90, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: 0x9a, dest: DEST_VOLUME, retrigger: 0x00 };
+        // The tine transient: a short swell on MOD 2, which Op A subscribes to.
+        patch.envelopes[1] = { amount: 0x70, attack: 0x00, hold: 0x00, decay: 0x40, dest: DEST_MOD2, retrigger: 0x00 };
+        patch.lfos[0] = { amount: 0x30, shape: LFO_TRI, trigger: 0x00, freq: 0xc8, dest: DEST_VOLUME };
+        patch.filter = { type: FILTER_LOWPASS, cutoff: 0xce, res: 0x20 };
+        patch.mixer.cho = 0xa0;
         break;
 
       case 'Sub Bass':
-        p.algorithm = 3;
-        p.operators[0] = { ...defaultOp(), ratio: 0.5, level: 1.0 };  // Op A Sub Carrier (FF)
-        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.40 }; // Op B Modulator (66)
-        p.operators[2] = { ...defaultOp(), ratio: 2.0, level: 0.20 }; // Op C Modulator (33)
-        p.operators[3] = { ...defaultOp(), ratio: 3.0, level: 0.10 }; // Op D Modulator (1A)
-        p.feedback = 0.15;
-        
-        p.env1 = { attack: 0.005, hold: 999, decay: 0.4, amount: 1.0, dest: 'volume' };
-        p.env2 = { attack: 0.001, hold: 0, decay: 0.15, amount: 0.25, dest: 'pitch' };
-        p.lfo1 = { shape: 'triangle', freq: 1.0, amount: 0.0, dest: 'none' };
-        p.lfo2 = { shape: 'triangle', freq: 1.0, amount: 0.0, dest: 'none' };
+        patch.name = 'M8FM SUB';
+        patch.algo = 0x07; // [A>B]+[C>D]
+        patch.operators[0] = { shape: OSC_SIN, ratio: 2, ratioFine: 0, level: 0x40, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.operators[1] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x60, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        // Op C silenced so Op D stays a clean sine sub.
+        patch.operators[2] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x00, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.operators[3] = { shape: OSC_SIN, ratio: 0, ratioFine: 50, level: 0xd0, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.envelopes[0] = { amount: 0xff, attack: 0x04, hold: 0x20, decay: 0xa0, dest: DEST_VOLUME, retrigger: 0x00 };
+        patch.envelopes[1] = { amount: 0x20, attack: 0x00, hold: 0x00, decay: 0x28, dest: DEST_PITCH, retrigger: 0x00 };
+        patch.filter = { type: FILTER_LOWPASS, cutoff: 0x98, res: 0x30 };
         break;
 
       case 'Mallet':
-        p.algorithm = 2;
-        p.operators[0] = { ...defaultOp(), ratio: 3.5, level: 0.35 }; // Inharmonic metallic ratio (59)
-        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 1.0 };  // Carrier 1 (FF)
-        p.operators[2] = { ...defaultOp(), ratio: 9.2, level: 0.25 }; // Glassy high ring (40)
-        p.operators[3] = { ...defaultOp(), ratio: 1.0, level: 0.60 }; // Carrier 2 (9E)
-        p.feedback = 0.05;
-        
-        p.env1 = { attack: 0.001, hold: 0, decay: 0.8, amount: 1.0, dest: 'volume' };
-        p.env2 = { attack: 0.001, hold: 0, decay: 0.12, amount: 0.45, dest: 'mod2' };
-        p.lfo1 = { shape: 'triangle', freq: 1.0, amount: 0.0, dest: 'none' };
-        p.lfo2 = { shape: 'triangle', freq: 1.0, amount: 0.0, dest: 'none' };
+        patch.name = 'M8FM MLT';
+        patch.algo = 0x07; // [A>B]+[C>D]
+        patch.operators[0] = { shape: OSC_SIN, ratio: 3, ratioFine: 50, level: 0x60, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
+        patch.operators[1] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xc0, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.operators[2] = { shape: OSC_SIN, ratio: 9, ratioFine: 0, level: 0x30, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
+        patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x60, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: 0x88, dest: DEST_VOLUME, retrigger: 0x00 };
+        patch.envelopes[1] = { amount: 0x70, attack: 0x00, hold: 0x00, decay: 0x38, dest: DEST_MOD2, retrigger: 0x00 };
+        patch.filter = { type: FILTER_LOWPASS, cutoff: 0xd8, res: 0x18 };
+        patch.mixer.cho = 0x40;
         break;
 
       case 'Pad':
-        p.algorithm = 2;
-        p.operators[0] = { ...defaultOp(), ratio: 1.0, level: 0.08 }; // Op A (14)
-        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.90 }; // Op B Carrier (E6)
-        p.operators[2] = { ...defaultOp(), ratio: 2.0, level: 0.10 }; // Op C (1A)
-        p.operators[3] = { ...defaultOp(), ratio: 1.0, level: 0.90 }; // Op D Carrier (E6)
-        p.feedback = 0.08;
-        
-        p.env1 = { attack: 0.6, hold: 0.5, decay: 3.0, amount: 1.0, dest: 'volume' };
-        p.env2 = { attack: 1.2, hold: 0.2, decay: 2.5, amount: 0.20, dest: 'mod2' };
-        p.lfo1 = { shape: 'sine', freq: 0.8, amount: 0.15, dest: 'pitch' };
-        p.lfo2 = { shape: 'triangle', freq: 1.0, amount: 0.0, dest: 'none' };
+        patch.name = 'M8FM PAD';
+        patch.algo = 0x07; // [A>B]+[C>D]
+        patch.operators[0] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x38, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
+        patch.operators[1] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xc0, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.operators[2] = { shape: OSC_SIN, ratio: 4, ratioFine: 0, level: 0x30, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
+        // Detuned against Op B, which is where the width comes from.
+        patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 1, level: 0xb0, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.envelopes[0] = { amount: 0xff, attack: 0x80, hold: 0x50, decay: 0xc8, dest: DEST_VOLUME, retrigger: 0x00 };
+        patch.envelopes[1] = { amount: 0x50, attack: 0xa0, hold: 0x00, decay: 0xc0, dest: DEST_MOD2, retrigger: 0x00 };
+        patch.lfos[0] = { amount: 0x08, shape: LFO_SIN, trigger: 0x00, freq: 0x60, dest: DEST_PITCH };
+        patch.filter = { type: FILTER_LOWPASS, cutoff: 0xb8, res: 0x28 };
+        patch.mixer.cho = 0xc0;
         break;
 
       case 'Digital Glitch':
-        p.algorithm = 1;
-        p.feedback = 0.35;
-        p.operators[0] = { ...defaultOp(), ratio: 7.13, level: 0.65 }; // Harsh ratio (A6)
-        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.80 };  // Modulator (CC)
-        p.operators[2] = { ...defaultOp(), ratio: 0.25, level: 1.0 };  // Sub Carrier (FF)
-        p.operators[3] = { ...defaultOp(), ratio: 11.45, level: 0.50 };// High glitch (80)
-        
-        p.env1 = { attack: 0.001, hold: 0, decay: 0.15, amount: 1.0, dest: 'volume' };
-        p.env2 = { attack: 0.001, hold: 0, decay: 0.08, amount: 0.60, dest: 'pitch' };
-        p.lfo1 = { shape: 'square', freq: 12.0, amount: 0.40, dest: 'pitch' };
-        p.lfo2 = { shape: 'sawtooth', freq: 8.0, amount: 0.30, dest: 'mod1' };
+        patch.name = 'M8FM GLT';
+        patch.algo = 0x00; // A>B>C>D
+        patch.operators[0] = { shape: OSC_SIN, ratio: 7, ratioFine: 13, level: 0x90, feedback: 0x60, modA: busToLevel(1), modB: 0x00 };
+        patch.operators[1] = { shape: OSC_SIN, ratio: 11, ratioFine: 0, level: 0x70, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.operators[2] = { shape: OSC_SIN, ratio: 0, ratioFine: 50, level: 0x88, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xe0, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: 0x68, dest: DEST_VOLUME, retrigger: 0x00 };
+        patch.envelopes[1] = { amount: 0x40, attack: 0x00, hold: 0x00, decay: 0x38, dest: DEST_PITCH, retrigger: 0x00 };
+        patch.lfos[0] = { amount: 0x30, shape: LFO_SQU_DN, trigger: 0x01, freq: 0xe0, dest: DEST_PITCH };
+        patch.lfos[1] = { amount: 0x40, shape: LFO_RAMP_DN, trigger: 0x00, freq: 0xd0, dest: DEST_MOD1 };
+        patch.filter = { type: FILTER_OFF, cutoff: 0xff, res: 0x00 };
         break;
 
       case 'Vintage Lead':
-        p.algorithm = 3;
-        p.operators[0] = { ...defaultOp(), ratio: 1.0, level: 1.0 };  // Op A Lead Carrier (FF)
-        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.55 }; // Op B Saw Modulator (8C)
-        p.operators[2] = { ...defaultOp(), ratio: 2.0, level: 0.25 }; // Op C Octave Modulator (40)
-        p.operators[3] = { ...defaultOp(), ratio: 3.0, level: 0.12 }; // Op D 5th Modulator (1F)
-        p.feedback = 0.20;
-        
-        p.env1 = { attack: 0.02, hold: 0.1, decay: 1.5, amount: 1.0, dest: 'volume' };
-        p.env2 = { attack: 0.005, hold: 0, decay: 0.5, amount: 0.15, dest: 'pitch' };
-        p.lfo1 = { shape: 'triangle', freq: 5.0, amount: 0.20, dest: 'pitch' };
-        p.lfo2 = { shape: 'triangle', freq: 1.0, amount: 0.0, dest: 'none' };
+        patch.name = 'M8FM LED';
+        patch.algo = 0x04; // [A+B+C]>D
+        patch.operators[0] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x50, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.operators[1] = { shape: OSC_SIN, ratio: 2, ratioFine: 0, level: 0x30, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.operators[2] = { shape: OSC_SIN, ratio: 3, ratioFine: 0, level: 0x18, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xd0, feedback: 0x30, modA: 0x00, modB: 0x00 };
+        patch.envelopes[0] = { amount: 0xff, attack: 0x28, hold: 0x50, decay: 0xb8, dest: DEST_VOLUME, retrigger: 0x00 };
+        patch.envelopes[1] = { amount: 0x50, attack: 0x18, hold: 0x00, decay: 0xa0, dest: DEST_CUTOFF, retrigger: 0x00 };
+        patch.lfos[0] = { amount: 0x08, shape: LFO_TRI, trigger: 0x00, freq: 0xa8, dest: DEST_PITCH };
+        patch.filter = { type: FILTER_LOWPASS, cutoff: 0xa0, res: 0x40 };
         break;
     }
 
-    return p;
+    return patch;
   }
 }

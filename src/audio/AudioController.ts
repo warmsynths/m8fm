@@ -1,21 +1,20 @@
-import type { FmParams } from './FmEngine';
-import { FmEngine } from './FmEngine';
+import { FmEngine, noteToFrequency } from './FmEngine';
 import { MacroMapper, type AnchorName } from './MacroMapper';
 import { M8Serializer } from './M8Serializer';
+import type { M8Patch } from './M8Patch';
 
-// Audio key mapping
+/** Home row plays a C major scale from middle C. */
 const keyMap: Record<string, number> = {
-  'a': 261.63, 's': 293.66, 'd': 329.63, 'f': 349.23,
-  'g': 392.00, 'h': 440.00, 'j': 493.88, 'k': 523.25,
+  a: 60, s: 62, d: 64, f: 65, g: 67, h: 69, j: 71, k: 72
 };
 
 export class AudioController {
   private engine = new FmEngine();
   private mapper = new MacroMapper();
   private serializer = new M8Serializer();
-  private isInitialized = false;
-  private rawParams: FmParams | null = null;
+  private rawPatch: M8Patch | null = null;
   private ctx: AudioContext | null = null;
+  private heldKeys = new Set<string>();
 
   constructor() {
     this.attachGestureListeners();
@@ -26,9 +25,12 @@ export class AudioController {
     if (!this.ctx) {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       this.ctx = new AudioContextClass();
-      this.engine.init(this.ctx);
-      this.isInitialized = true;
-      console.log('Audio initialized!');
+      this.engine
+        .init(this.ctx)
+        .then(() => this.applyPatch())
+        .catch(() => {
+          /* already logged by the engine */
+        });
     }
     this.resume();
   }
@@ -42,43 +44,52 @@ export class AudioController {
   }
 
   private attachGestureListeners() {
-    const handleGesture = () => {
-      this.init();
-    };
+    const handleGesture = () => this.init();
     window.addEventListener('pointerdown', handleGesture, { passive: true });
     window.addEventListener('keydown', handleGesture, { passive: true });
     window.addEventListener('touchstart', handleGesture, { passive: true });
-    window.addEventListener('click', handleGesture, { passive: true });
   }
 
   private attachKeyboardListeners() {
     window.addEventListener('keydown', (e) => {
-      this.init();
       const key = e.key.toLowerCase();
-      if (keyMap[key] && !e.repeat) {
-        this.engine.triggerNoteOn(keyMap[key], 1.0);
-      }
+      if (keyMap[key] === undefined || e.repeat || e.metaKey || e.ctrlKey) return;
+      this.init();
+      this.heldKeys.add(key);
+      this.engine.noteOn(keyMap[key], noteToFrequency(keyMap[key]), 1.0);
     });
 
     window.addEventListener('keyup', (e) => {
-      if (keyMap[e.key.toLowerCase()]) {
-        this.engine.triggerNoteOff();
-      }
+      const key = e.key.toLowerCase();
+      if (keyMap[key] === undefined) return;
+      this.heldKeys.delete(key);
+      this.engine.noteOff(keyMap[key]);
     });
+
+    // Losing focus mid-note means no keyup ever arrives, so release everything.
+    window.addEventListener('blur', () => this.allNotesOff());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.allNotesOff();
+    });
+  }
+
+  public allNotesOff() {
+    this.heldKeys.clear();
+    this.engine.allNotesOff();
   }
 
   public loadAnchor(anchor: AnchorName) {
     this.init();
-    this.rawParams = null; // Clear raw params when using macro mapper
+    this.rawPatch = null;
     this.mapper.loadAnchor(anchor);
-    this.applyParams();
+    this.applyPatch();
   }
 
   public setMacro(macroName: string, value: number) {
     this.init();
-    if (this.rawParams) return; // Don't apply macros if we're in raw mode
+    if (this.rawPatch) return;
     this.mapper.setMacro(macroName, value);
-    this.applyParams();
+    this.applyPatch();
   }
 
   public setVolume(value: number) {
@@ -86,24 +97,21 @@ export class AudioController {
     this.engine.setVolume(value);
   }
 
-  public loadRawParams(params: FmParams) {
+  public loadRawPatch(patch: M8Patch) {
     this.init();
-    this.rawParams = params;
-    this.engine.applyParams(params);
+    this.rawPatch = patch;
+    this.applyPatch();
   }
 
-  private applyParams() {
-    if (!this.isInitialized) return;
-    const params = this.rawParams || this.mapper.getComputedFmParams();
-    this.engine.applyParams(params);
+  private applyPatch() {
+    this.engine.applyPatch(this.getPatch());
   }
 
-  public getFmParams(): FmParams {
-    return this.rawParams || this.mapper.getComputedFmParams();
+  public getPatch(): M8Patch {
+    return this.rawPatch || this.mapper.getPatch();
   }
 
   public exportPatch(filename: string) {
-    const params = this.rawParams || this.mapper.getComputedFmParams();
-    this.serializer.downloadM8Instrument(filename, params);
+    this.serializer.downloadM8Instrument(filename, this.getPatch());
   }
 }

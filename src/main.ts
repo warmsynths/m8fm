@@ -4,7 +4,17 @@ import { styleMap } from 'lit/directives/style-map.js';
 
 import './style.css';
 import { AudioController } from './audio/AudioController';
-import { getM8ModString } from './audio/FmEngine';
+import {
+  M8_ALGOS,
+  M8_ENV_DESTS,
+  M8_FILTER_TYPES,
+  M8_LFO_SHAPES,
+  M8_LFO_TRIGGERS,
+  M8_OSC_SHAPES,
+  hex,
+  modSlotToString,
+  ratioToString
+} from './audio/M8Patch';
 import { AnchorMacroConfig, type AnchorName } from './audio/MacroMapper';
 import { MACHINES } from './ui/MachineData';
 import { SysExParser, type Dx7Patch } from './audio/SysExParser';
@@ -49,7 +59,6 @@ export class FmStudio extends LitElement {
   @state() accessor dx7Sel = 0;
   @state() accessor dx7Adv = false;
   @state() accessor dx7ManualOps: Set<number> = new Set();
-  @state() accessor fullDx7Mode: boolean = false;
 
   connectedCallback() {
     super.connectedCallback();
@@ -105,17 +114,10 @@ export class FmStudio extends LitElement {
   selectDx7Patch(idx: number) {
     if (this.dx7Patches.length === 0) return;
     this.dx7Sel = idx;
-    const patch = this.dx7Patches[idx];
     const keepIndices = this.dx7ManualOps.size === 4 ? Array.from(this.dx7ManualOps) : undefined;
-    const { m8Params, fullParams } = DX7ToM8Translator.translate(patch, keepIndices);
-    audio.loadRawParams(this.fullDx7Mode ? fullParams : m8Params);
+    audio.loadRawPatch(DX7ToM8Translator.translate(this.dx7Patches[idx], keepIndices));
   }
-  
-  toggleFullDx7Mode() {
-    this.fullDx7Mode = !this.fullDx7Mode;
-    this.selectDx7Patch(this.dx7Sel);
-  }
-  
+
   toggleDx7Op(opIndex: number) {
     const newSet = new Set(this.dx7ManualOps);
     if (newSet.has(opIndex)) {
@@ -145,21 +147,8 @@ export class FmStudio extends LitElement {
   }
 
   downloadM8Instrument() {
-    if (this.dx7Patches.length > 0) {
-      // ALWAYS export M8 params (4-op), never the full 6-op ones
-      const patch = this.dx7Patches[this.dx7Sel];
-      const keepIndices = this.dx7ManualOps.size === 4 ? Array.from(this.dx7ManualOps) : undefined;
-      const { m8Params } = DX7ToM8Translator.translate(patch, keepIndices);
-      audio.loadRawParams(m8Params); // Temporarily load the M8 version if we are in full mode
-      audio.exportPatch('Patch.m8i');
-      if (this.fullDx7Mode) {
-        // Restore full mode
-        this.selectDx7Patch(this.dx7Sel);
-      }
-    } else {
-      audio.exportPatch('Patch.m8i');
-    }
-    console.log('Exported .m8i patch');
+    // What is playing is what gets exported -- there is only ever one patch.
+    audio.exportPatch('Patch.m8i');
   }
 
   handleDown(e: PointerEvent, index: number, horiz: boolean) {
@@ -277,14 +266,8 @@ export class FmStudio extends LitElement {
               <button type="button" @click=${() => this.dx7Adv = !this.dx7Adv} style="background:none;border:none;padding:0;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.5);display:flex;align-items:center;gap:7px;width:fit-content">
                 <span style="display:inline-block;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;transform:rotate(${this.dx7Adv ? '90deg' : '0deg'})"></span>ADVANCED DX7 ROUTING
               </button>
-              
-              <div style="display:flex;align-items:center;gap:8px">
-                <div style="font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.5)">PREVIEW MODE:</div>
-                <button type="button" @click=${this.toggleFullDx7Mode} style="background:${this.fullDx7Mode ? 'transparent' : '#17170f'};border:1px solid ${this.fullDx7Mode ? 'rgba(0,0,0,.15)' : '#17170f'};color:${this.fullDx7Mode ? '#17170f' : '#fff'};padding:4px 8px;border-radius:3px;cursor:pointer;font:500 10px 'JetBrains Mono',monospace">M8</button>
-                <button type="button" @click=${this.toggleFullDx7Mode} style="background:${this.fullDx7Mode ? '#17170f' : 'transparent'};border:1px solid ${this.fullDx7Mode ? '#17170f' : 'rgba(0,0,0,.15)'};color:${this.fullDx7Mode ? '#fff' : '#17170f'};padding:4px 8px;border-radius:3px;cursor:pointer;font:500 10px 'JetBrains Mono',monospace">FULL DX7</button>
-              </div>
             </div>
-            
+
             ${this.dx7Adv ? html`
               <div style="background:rgba(255,255,255,0.4);border-radius:4px;padding:12px;display:flex;flex-direction:column;gap:8px">
                 <div style="font:400 10px 'JetBrains Mono',monospace;color:rgba(0,0,0,.6)">Select 4 operators to extract (heuristic is used if less than 4 selected).</div>
@@ -373,73 +356,47 @@ export class FmStudio extends LitElement {
               
               ${this.adv ? html`
                 ${(() => {
-                  const fm = audio.getFmParams();
-                  const hx = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).toUpperCase().padStart(2, '0');
-                  const M8_ALGO_STRINGS = [
-                    'A>B>C>D',
-                    '[A+B]>C>D',
-                    '[A>B+C]>D',
-                    '[A>B+A>C]>D',
-                    '[A+B+C]>D',
-                    '[A>B>C]+D',
-                    '[A>B>C]+[A>B>D]',
-                    '[A>B]+[C>D]',
-                    '[A>B]+[A>C]+[A>D]',
-                    '[A>B]+[A>C]+D',
-                    '[A>B]+C+D',
-                    'A+B+C+D'
-                  ];
-                  const fmAlgo = (fm?.algorithm && M8_ALGO_STRINGS[fm.algorithm - 1]) || M8_ALGO_STRINGS[0];
-                  const m8Ops = fm?.operators ? [fm.operators[0], fm.operators[1], fm.operators[2], fm.operators[3]] : [];
-                  const getShapeStr = (shape?: string) => {
-                    if (shape === 'square') return 'SQR';
-                    if (shape === 'sawtooth') return 'SAW';
-                    if (shape === 'triangle') return 'TRI';
-                    return 'SIN';
-                  };
-                  
-                  const fmOps = ['A','B','C','D'].map((id, i) => {
-                    const opObj = m8Ops[i];
-                    const levVal = opObj?.level !== undefined ? opObj.level * 255 : 0;
-                    const ratioVal = opObj?.ratio !== undefined ? opObj.ratio : 1.0;
-                    const fbVal = i === 0 ? (fm?.feedback !== undefined ? fm.feedback * 63 : 0) : 0;
+                  // Straight off the patch: every value here is the raw M8
+                  // parameter that the .m8i export writes and that you would
+                  // key into the device by hand.
+                  const patch = audio.getPatch();
+                  const fmAlgo = M8_ALGOS[patch.algo] ?? M8_ALGOS[0];
+
+                  const fmOps = ['A', 'B', 'C', 'D'].map((id, i) => {
+                    const op = patch.operators[i];
                     return {
                       id,
-                      wave: getShapeStr(opObj?.shape),
-                      ratio: ratioVal.toFixed(2),
-                      lev: hx(levVal),
-                      fb: hx(fbVal),
-                      mod1: getM8ModString(opObj?.modA !== undefined ? opObj.modA : (i === 0 ? (fm?.env2?.dest === 'mod2' ? 2 : fm?.env2?.dest === 'mod1' ? 1 : 0) : 0)),
-                      mod2: getM8ModString(opObj?.modB)
+                      wave: M8_OSC_SHAPES[op.shape] ?? 'SIN',
+                      ratio: ratioToString(op),
+                      lev: hex(op.level),
+                      fb: hex(op.feedback),
+                      mod1: modSlotToString(op.modA),
+                      mod2: modSlotToString(op.modB)
                     };
                   });
 
-                  const fmModRows = mach.mods.map((_, i) => {
-                    const amtVal = i === 0 ? (fm?.env1?.amount ?? 1) * 255
-                                 : i === 1 ? (fm?.env2?.amount ?? 0) * 255
-                                 : i === 2 ? (fm?.lfo1?.amount ?? 0) * 255
-                                 : (fm?.lfo2?.amount ?? 0) * 255;
-                    return {
-                      idx: i + 1,
-                      pct: (amtVal / 2.55).toFixed(1) + '%',
-                      label: hx(amtVal)
-                    };
-                  });
+                  // The four MOD buses, which is what MOD1..MOD4 mean on the
+                  // device -- not the four modulator slots.
+                  const fmModRows = patch.mods.map((amount, i) => ({
+                    idx: i + 1,
+                    pct: ((amount / 255) * 100).toFixed(1) + '%',
+                    label: hex(amount)
+                  }));
 
                   const fmFilterChips = [
-                    { name: 'TYPE', val: fm?.filter?.type === 'lowpass' ? 'LP' : 'OFF' },
-                    { name: 'CUTOFF', val: fm?.filter?.type === 'lowpass' ? hx(fm.filter.cutoff * 255) : 'FF' },
-                    { name: 'RES', val: fm?.filter?.res !== undefined ? hx(fm.filter.res * 255) : '00' }
+                    { name: 'TYPE', val: M8_FILTER_TYPES[patch.filter.type] ?? 'OFF' },
+                    { name: 'CUTOFF', val: hex(patch.filter.cutoff) },
+                    { name: 'RES', val: hex(patch.filter.res) }
                   ];
 
                   const fmOutChips = [
-                    { name: 'AMP', val: hx((vals[0] || 70) * 2.55) },
-                    { name: 'LIM', val: '00' },
-                    { name: 'PAN', val: hx(128) },
-                    { name: 'DRY', val: hx(192) },
-                    { name: 'CHO', val: fm?.chorus !== undefined ? hx(fm.chorus * 255) : hx(0) },
-                    { name: 'DEL', val: hx(0) },
-                    { name: 'REV', val: hx(0) }
+                    { name: 'AMP', val: hex(patch.mixer.amp) },
+                    { name: 'LIM', val: hex(patch.mixer.lim) },
+                    { name: 'PAN', val: hex(patch.mixer.pan) },
+                    { name: 'DRY', val: hex(patch.mixer.dry) },
+                    { name: 'CHO', val: hex(patch.mixer.cho) },
+                    { name: 'DEL', val: hex(patch.mixer.del) },
+                    { name: 'REV', val: hex(patch.mixer.rev) }
                   ];
 
                   return html`
@@ -448,6 +405,8 @@ export class FmStudio extends LitElement {
                         <div style="display:flex;align-items:baseline;gap:10px">
                           <div style="font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.14em;color:rgba(23,23,15,.4)">ALGO</div>
                           <div style="font:700 15px 'JetBrains Mono',monospace;color:#17170f">${fmAlgo}</div>
+                          <div style="font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.14em;color:rgba(23,23,15,.4);margin-left:8px">VOL</div>
+                          <div style="font:700 15px 'JetBrains Mono',monospace;color:#17170f">${hex(patch.volume)}</div>
                         </div>
                         <div style="display:flex;gap:24px;flex-wrap:wrap">
                           <div style="display:flex;flex-direction:column;gap:6px">
@@ -512,57 +471,46 @@ export class FmStudio extends LitElement {
 
               ${this.advMod ? html`
                 ${(() => {
-                  const fm = audio.getFmParams();
-                  const hx = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).toUpperCase().padStart(2, '0');
-                  
-                  const getModDest = (i: number) => {
-                    if (i === 0) return (fm?.env1?.dest && fm.env1.dest !== 'none') ? fm.env1.dest.toUpperCase() : 'VOLUME';
-                    if (i === 1) return (fm?.env2?.dest && fm.env2.dest !== 'none') ? fm.env2.dest.toUpperCase() : (mach.id === 'sb' || mach.id === 'dg' ? 'PITCH' : mach.id === 'vl' ? 'MOD 2' : 'MOD 4');
-                    if (i === 2) return (fm?.lfo1?.dest && fm.lfo1.dest !== 'none') ? fm.lfo1.dest.toUpperCase() : (mach.id === 'ep' ? 'VOLUME' : mach.id === 'pd' ? 'PITCH' : mach.id === 'dg' ? 'MOD 1' : 'OFF');
-                    return (fm?.lfo2?.dest && fm.lfo2.dest !== 'none') ? fm.lfo2.dest.toUpperCase() : 'OFF';
+                  // The M8's four modulator slots: ENV1, ENV2, LFO1, LFO2.
+                  // Their DEST is what points them at VOLUME, PITCH or one of
+                  // the MOD buses shown in the FM PARAMETERS panel above.
+                  const patch = audio.getPatch();
+                  const destStr = (dest: number) => M8_ENV_DESTS[dest] ?? 'OFF';
+
+                  const envSlot = (idx: number) => {
+                    const env = patch.envelopes[idx];
+                    return {
+                      idx: idx + 1,
+                      type: 'AHD ENV',
+                      dest: destStr(env.dest),
+                      amtVal: env.amount,
+                      params: [
+                        { k: 'ATK', v: hex(env.attack) },
+                        { k: 'HOLD', v: hex(env.hold) },
+                        { k: 'DEC', v: hex(env.decay) }
+                      ]
+                    };
                   };
 
-                  const modSlots = [
-                    {
-                      idx: 1, type: 'AHD ENV', dest: getModDest(0),
-                      amtVal: (fm?.env1?.amount ?? 1) * 255,
+                  const lfoSlot = (idx: number) => {
+                    const lfo = patch.lfos[idx];
+                    return {
+                      idx: idx + 3,
+                      type: 'LFO',
+                      dest: destStr(lfo.dest),
+                      amtVal: lfo.amount,
                       params: [
-                        { k: 'ATK', v: hx((fm?.env1?.attack ?? 0.01) * 255) },
-                        { k: 'HOLD', v: hx((fm?.env1?.hold ?? 0) * 255) },
-                        { k: 'DEC', v: hx((fm?.env1?.decay ?? 2.0) * 127) }
+                        { k: 'OSC', v: M8_LFO_SHAPES[lfo.shape] ?? 'TRI' },
+                        { k: 'TRIG', v: M8_LFO_TRIGGERS[lfo.trigger] ?? 'FREE' },
+                        { k: 'FREQ', v: hex(lfo.freq) }
                       ]
-                    },
-                    {
-                      idx: 2, type: 'AHD ENV', dest: getModDest(1),
-                      amtVal: (fm?.env2?.amount ?? 0) * 255,
-                      params: [
-                        { k: 'ATK', v: hx((fm?.env2?.attack ?? 0.01) * 255) },
-                        { k: 'HOLD', v: hx((fm?.env2?.hold ?? 0) * 255) },
-                        { k: 'DEC', v: hx((fm?.env2?.decay ?? 0.3) * 127) }
-                      ]
-                    },
-                    {
-                      idx: 3, type: 'LFO', dest: getModDest(2),
-                      amtVal: (fm?.lfo1?.amount ?? 0) * 255,
-                      params: [
-                        { k: 'OSC', v: (fm?.lfo1?.shape ?? 'triangle').substring(0,3).toUpperCase() },
-                        { k: 'TRIG', v: 'FREE' },
-                        { k: 'FREQ', v: hx((fm?.lfo1?.freq ?? 0) * 16) }
-                      ]
-                    },
-                    {
-                      idx: 4, type: 'LFO', dest: getModDest(3),
-                      amtVal: (fm?.lfo2?.amount ?? 0) * 255,
-                      params: [
-                        { k: 'OSC', v: (fm?.lfo2?.shape ?? 'triangle').substring(0,3).toUpperCase() },
-                        { k: 'TRIG', v: 'FREE' },
-                        { k: 'FREQ', v: hx((fm?.lfo2?.freq ?? 0) * 16) }
-                      ]
-                    }
-                  ].map(s => ({
+                    };
+                  };
+
+                  const modSlots = [envSlot(0), envSlot(1), lfoSlot(0), lfoSlot(1)].map(s => ({
                     ...s,
-                    amt: hx(s.amtVal),
-                    pct: (s.amtVal / 2.55).toFixed(1) + '%'
+                    amt: hex(s.amtVal),
+                    pct: ((s.amtVal / 255) * 100).toFixed(1) + '%'
                   }));
 
                   return html`

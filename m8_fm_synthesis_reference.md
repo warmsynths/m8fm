@@ -88,7 +88,55 @@ The M8 uses a 2-level modulation matrix:
 
 ---
 
-## 6. Web Audio vs Hardware Implementation Gotchas
+## 6. The FMSYNTH Has No Implicit Amplitude Envelope
 
-1. **Linear FM vs Phase Modulation**: Standard Web Audio `Oscillator.frequency` modulation is linear Hz Frequency Modulation. Phase Modulation ($\Delta \phi$) requires scaling frequency deviation as $\Delta f = (\text{Index}_{\text{rad}}) \cdot f_{\text{modulator}}$.
-2. **Op C & Op D Silencing**: In Algorithm 07 (`[A>B] + [C>D]`), if `LEV C` or `LEV D` are left at `80` (50%), Op C modulates Op D into a loud buzzy synth tone. Setting `LEV C = 00` and `LEV D = 00` isolates the pure 2-op sine piano pair.
+This is the single most common reason a patch that looks correct on paper comes
+out as a continuous harsh buzz on the device.
+
+Unlike a subtractive synth, an M8 `FMSYNTH` instrument has **no built-in amp
+envelope**. Nothing shapes the note's loudness unless you explicitly point a
+modulator at it. With every `ENV`/`LFO` aimed at `MOD 1`-`MOD 4` and none at
+`VOLUME`, the operators run flat out for as long as the note is held: no attack,
+no decay, no tail. A perfectly reasonable set of ratios and levels then reads as
+a static, buzzing drone, and no amount of tweaking `RATIO`, `LEVEL` or `FB` will
+fix it, because the problem is not the timbre.
+
+There are two valid ways to give a patch an amplitude envelope:
+
+1. **`ENV 1` → `DEST: VOLUME`** (`AMOUNT FF`). This is the M8's own default for a
+   new instrument, which ships with `VOLUME 00` so the envelope sweeps the note
+   up from silence. Unambiguous, and the right default.
+2. **`ENV 1` → `DEST: MOD 1`**, with each carrier's `MOD` slot set to `1▸LEV`.
+   The envelope drives the MOD 1 bus, which in turn opens the carriers' levels.
+   More flexible (it can shape individual carriers), but every carrier that
+   should be enveloped has to subscribe to the bus — a carrier left on `-----`
+   keeps sounding at its fixed `LEVEL` forever.
+
+Recipe 5A above uses the second form. If you copy it, do not skip the `1▸LEV` on
+the carriers.
+
+---
+
+## 7. Web Audio vs Hardware Implementation Gotchas
+
+1. **Linear FM vs Phase Modulation**: Standard Web Audio `Oscillator.frequency`
+   modulation is linear Hz Frequency Modulation, and it is not a workable
+   substitute. For a single sine modulator the two coincide when the deviation
+   is set to $\Delta f = \text{Index}_{\text{cycles}} \cdot f_{\text{modulator}}$,
+   but the equivalence breaks down as soon as operators are cascaded, and the
+   deviation has to be clamped to keep the instantaneous frequency positive —
+   which changes the timbre as you play up the keyboard. Real phase modulation
+   needs a per-sample renderer (an `AudioWorklet`), which is what this app uses.
+2. **Feedback needs a one-sample loop**: a `DelayNode` cannot do it. Web Audio
+   enforces a minimum delay of one render quantum (128 samples) in any cycle, so
+   a feedback loop built from nodes is roughly 3 ms late and turns into noise at
+   any setting. Operator self-feedback has to live inside the worklet.
+3. **Op C & Op D Silencing**: In Algorithm 07 (`[A>B] + [C>D]`), if `LEV C` or
+   `LEV D` are left at `80` (50%), Op C modulates Op D into a loud buzzy synth
+   tone. Setting `LEV C = 00` and `LEV D = 00` isolates the pure 2-op sine piano
+   pair.
+4. **Parameter units are not linear**: the M8's `00`-`FF` envelope times, LFO
+   frequencies and filter cutoffs are all curves, and Dirtywave does not publish
+   them. If an app both previews a patch and exports it, the preview must derive
+   its audio values from the same raw parameters it displays, or the two will
+   drift apart and the exported instrument will not sound like the preview.

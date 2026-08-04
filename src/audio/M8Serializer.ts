@@ -1,120 +1,87 @@
-import type { FmParams } from './FmEngine';
-// @ts-ignore
+import type { M8Patch } from './M8Patch';
+import { clampByte } from './M8Patch';
+// @ts-ignore - m8-js ships untyped CommonJS
 import { dumpM8File } from 'm8-js';
-// @ts-ignore
-import FMSYNTH from 'm8-js/lib/types/instruments/FMSYNTH';
+// @ts-ignore - m8-js ships untyped CommonJS
+import FMSynth from 'm8-js/lib/types/instruments/FMSynth';
 
+/**
+ * Writes an M8Patch to a .m8i file.
+ *
+ * Because M8Patch already holds raw M8 parameter values, this is a plain field
+ * copy with no unit conversion at all. That is the point: whatever the UI shows
+ * is exactly what lands in the file, and exactly what you would key into the
+ * device by hand.
+ */
 export class M8Serializer {
-  public serializeFmInstrument(params: FmParams): Uint8Array {
-    const instr = new FMSYNTH();
-    instr.name = 'M8FM_PATCH';
+  public serializeFmInstrument(patch: M8Patch): Uint8Array {
+    const instr = new FMSynth();
 
-    // Set Algorithm
-    // Our 1 is M8's algo 0?
-    // Let's just map 1->0, 2->1, 3->2
-    instr.instrParams.algo = Math.max(0, params.algorithm - 1);
+    instr.name = patch.name.slice(0, 12);
+    instr.volume = clampByte(patch.volume);
+    instr.pitch = clampByte(patch.pitch);
+    instr.fineTune = clampByte(patch.fineTune);
 
-    // Map operators
+    instr.instrParams.algo = patch.algo;
+    instr.instrParams.mod1 = clampByte(patch.mods[0]);
+    instr.instrParams.mod2 = clampByte(patch.mods[1]);
+    instr.instrParams.mod3 = clampByte(patch.mods[2]);
+    instr.instrParams.mod4 = clampByte(patch.mods[3]);
+
     for (let i = 0; i < 4; i++) {
-      const opParams = params.operators[i];
-      const m8Op = instr.instrParams.operators[i];
-      
-      // M8 ratio: integer 0-15
-      m8Op.ratio = Math.floor(opParams.ratio);
-      // M8 ratioFine: fractional 0-99
-      m8Op.ratioFine = Math.round((opParams.ratio % 1) * 100);
-      
-      // Level 0-255 (00..FF hex)
-      m8Op.level = Math.min(255, Math.round(opParams.level * 255));
-      m8Op.shape = 0; // Sine
-
-      m8Op.modA = opParams.modA !== undefined ? opParams.modA : (i === 0 && params.env2?.dest === 'mod2' ? 2 : i === 0 && params.env2?.dest === 'mod1' ? 1 : 0);
-      m8Op.modB = opParams.modB !== undefined ? opParams.modB : 0;
+      const op = patch.operators[i];
+      const target = instr.instrParams.operators[i];
+      target.shape = op.shape;
+      target.ratio = op.ratio;
+      target.ratioFine = op.ratioFine;
+      target.level = clampByte(op.level);
+      target.feedback = clampByte(op.feedback);
+      target.modA = op.modA;
+      target.modB = op.modB;
     }
 
-    instr.instrParams.mod1 = 128;
-    instr.instrParams.mod2 = 32;
-
-    // Envelopes
-    const destMap: Record<string, number> = {
-      'none': 0,
-      'volume': 1,
-      'pitch': 2,
-      'mod1': 3,
-      'mod2': 4,
-      'mod3': 5,
-      'mod4': 6
-    };
-
-    if (params.env1) {
-      instr.envelopes[0].attack = Math.min(255, Math.floor(params.env1.attack * 255));
-      instr.envelopes[0].hold = params.env1.hold >= 999 ? 255 : Math.min(254, Math.floor(params.env1.hold * 255));
-      instr.envelopes[0].decay = Math.min(255, Math.floor(params.env1.decay * 255));
-      instr.envelopes[0].amount = Math.min(255, Math.floor(params.env1.amount * 255));
-      instr.envelopes[0].dest = destMap[params.env1.dest] !== undefined ? destMap[params.env1.dest] : 1;
+    for (let i = 0; i < 2; i++) {
+      const env = patch.envelopes[i];
+      const target = instr.envelopes[i];
+      target.amount = clampByte(env.amount);
+      target.attack = clampByte(env.attack);
+      target.hold = clampByte(env.hold);
+      target.decay = clampByte(env.decay);
+      target.dest = env.dest;
+      target.retrigger = env.retrigger;
     }
 
-    if (params.env2) {
-      instr.envelopes[1].attack = Math.min(255, Math.floor(params.env2.attack * 255));
-      instr.envelopes[1].hold = params.env2.hold >= 999 ? 255 : Math.min(254, Math.floor(params.env2.hold * 255));
-      instr.envelopes[1].decay = Math.min(255, Math.floor(params.env2.decay * 255));
-      instr.envelopes[1].amount = Math.min(255, Math.floor(params.env2.amount * 255));
-      instr.envelopes[1].dest = destMap[params.env2.dest] !== undefined ? destMap[params.env2.dest] : 0;
+    for (let i = 0; i < Math.min(2, instr.lfos.length); i++) {
+      const lfo = patch.lfos[i];
+      const target = instr.lfos[i];
+      target.amount = clampByte(lfo.amount);
+      target.shape = lfo.shape;
+      target.triggerMode = lfo.trigger;
+      target.freq = clampByte(lfo.freq);
+      target.dest = lfo.dest;
     }
 
-    // LFOs
-    const mapLfo = (lfoData: any, lfoObj: any) => {
-      if (!lfoData || lfoData.dest === 'none') {
-        lfoObj.amount = 0;
-        return;
-      }
-      lfoObj.amount = Math.min(255, Math.floor(lfoData.amount * 255));
-      lfoObj.freq = Math.min(255, Math.floor(lfoData.freq * 10)); // Arbitrary scaling for M8 freq 0-255
+    instr.filterParams.type = patch.filter.type;
+    instr.filterParams.cutoff = clampByte(patch.filter.cutoff);
+    instr.filterParams.res = clampByte(patch.filter.res);
 
-      const destMap: Record<string, number> = {
-        'none': 0,
-        'volume': 1,
-        'pitch': 2,
-        'mod1': 3,
-        'mod2': 4,
-        'mod3': 5,
-        'mod4': 6
-      };
-      lfoObj.dest = destMap[lfoData.dest] || 0;
+    instr.ampParams.amp = clampByte(patch.mixer.amp);
+    instr.ampParams.limit = clampByte(patch.mixer.lim);
 
-      const shapeMap: Record<string, number> = {
-        'triangle': 0,
-        'sine': 1,
-        'sawtooth': 2,
-        'square': 6
-      };
-      lfoObj.shape = shapeMap[lfoData.shape] || 1;
-    };
+    instr.mixerParams.pan = clampByte(patch.mixer.pan);
+    instr.mixerParams.dry = clampByte(patch.mixer.dry);
+    instr.mixerParams.cho = clampByte(patch.mixer.cho);
+    instr.mixerParams.del = clampByte(patch.mixer.del);
+    instr.mixerParams.rev = clampByte(patch.mixer.rev);
 
-    mapLfo(params.lfo1, instr.lfos[0]);
-    mapLfo(params.lfo2, instr.lfos[1]);
-
-    // Filter
-    if (params.filter && params.filter.type === 'lowpass') {
-      instr.filterParams.type = 1; // LP
-      instr.filterParams.cutoff = Math.floor(params.filter.cutoff * 255);
-      instr.filterParams.res = Math.floor((params.filter.res || 0) * 255);
-    }
-
-    // Mixer Chorus
-    if (params.chorus !== undefined) {
-      instr.mixerParams.cho = Math.floor(params.chorus * 255);
-    }
-
-    // Dump to binary
     return dumpM8File(instr);
   }
 
-  public downloadM8Instrument(filename: string, params: FmParams) {
-    const bytes = this.serializeFmInstrument(params);
+  public downloadM8Instrument(filename: string, patch: M8Patch) {
+    const bytes = this.serializeFmInstrument(patch);
     const blob = new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
-    
+
     const a = document.createElement('a');
     a.href = url;
     a.download = filename.endsWith('.m8i') ? filename : `${filename}.m8i`;
