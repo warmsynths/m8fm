@@ -398,7 +398,12 @@ export class FmStudio extends LitElement {
                       ratio: ratioVal.toFixed(2),
                       lev: hx(levVal),
                       fb: hx(fbVal),
-                      mod: (() => { const j = DEST_COL.indexOf(id); return j === -1 ? '----' : (j + 1) + '\u25b8LEV'; })()
+                      mod1: (() => {
+                        if (levVal === 0) return '-----';
+                        const j = DEST_COL.indexOf(id);
+                        return j === -1 ? '-----' : (j + 1) + '\u25b8LEV';
+                      })(),
+                      mod2: '-----'
                     };
                   });
 
@@ -472,7 +477,8 @@ export class FmStudio extends LitElement {
                               <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">RATIO</span><span style="font:700 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.ratio}</span></div>
                               <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">LEVEL</span><span style="font:700 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.lev}</span></div>
                               <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">FB</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.fb}</span></div>
-                              <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">MOD</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.mod}</span></div>
+                              <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">MOD 1</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.mod1}</span></div>
+                              <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">MOD 2</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.mod2}</span></div>
                             </div>
                           </div>
                         `)}
