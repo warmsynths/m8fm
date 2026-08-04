@@ -72,27 +72,31 @@ export class MacroMapper {
 
   private applyElectricPianoMath(params: FmParams) {
     const tine = this.getMacroVal('Tine Material');
-    params.operators[3].ratio = 1.0 + Math.floor(tine * 0.0);
-    params.operators[3].level = 0.0;
+    // Tine material morphs modulator ratio from 3.0 (Classic MK1 baseline) up to 7.0 (glassy tine overtones)
+    params.operators[0].ratio = 3.0 + Math.floor(tine * 4.0);
 
     const strike = this.getMacroVal('Strike Force');
+    // Strike force controls the transient attack envelope depth and filter cutoff
     if (params.env2) {
-      params.env2.amount = strike * 0.1;
-      params.env2.decay = 0.05 + (1.0 - strike) * 0.4;
+      params.env2.amount = 0.5 + strike * 0.5;
     }
-    if (params.env1) {
-      params.env1.attack = 0.001 + (1.0 - strike) * 0.03;
+    if (params.filter) {
+      params.filter.cutoff = 0.70 + strike * 0.25;
     }
 
     const bark = this.getMacroVal('Bark');
-    params.feedback = 0.0; // Strictly 00 hex - no saw self-feedback
-    params.operators[0].level = 0.03 + bark * 0.04; // Low level 08..10 hex (pure sine modulation)
+    params.feedback = 0.0; // Strictly 00 hex - pure sine PM for silky piano timbre
+    // Bark controls modulator level & envelope decay duration
+    params.operators[0].level = 0.35 + bark * 0.30;
+    if (params.env2) {
+      params.env2.decay = 0.06 + bark * 0.15;
+    }
 
     const tremolo = this.getMacroVal('Tremolo Depth');
     if (params.lfo1) {
       params.lfo1.dest = 'volume';
-      params.lfo1.amount = 0.15 + tremolo * 0.2; // Tamed LFO 26..59 hex
-      params.lfo1.freq = 3.0 + tremolo * 4.0;
+      params.lfo1.amount = tremolo * 0.6;
+      params.lfo1.freq = 3.5 + tremolo * 4.0;
     }
   }
 
@@ -246,17 +250,19 @@ export class MacroMapper {
 
     switch (anchor) {
       case 'Electric Piano':
-        p.algorithm = 2;
-        p.operators[0] = { ...defaultOp(), ratio: 1.0, level: 0.15 }; // Op A (Modulator -> B) level 26
-        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 1.0 };  // Op B (Carrier 1 Out) level FF
-        p.operators[2] = { ...defaultOp(), ratio: 1.0, level: 0.0 };   // Op C level 00
-        p.operators[3] = { ...defaultOp(), ratio: 1.0, level: 0.45 }; // Op D (Carrier 2 Out) level 73
+        p.algorithm = 9; // M8 Algo 08: [A>B] + [A>C] + [A>D] (E PIANO07)
+        p.operators[0] = { ...defaultOp(), ratio: 3.0, level: 0.50, modA: 2, modB: 0 };  // Op A (Modulator) ratio 3.00, level 128 (80 hex), 2▸LEV
+        p.operators[1] = { ...defaultOp(), ratio: 0.50, level: 0.408, modA: 0, modB: 0 }; // Op B (Sub Carrier) ratio 0.50, level 104 (68 hex)
+        p.operators[2] = { ...defaultOp(), ratio: 1.50, level: 0.533, modA: 0, modB: 0 }; // Op C (5th Overtone Carrier) ratio 1.50, level 136 (88 hex)
+        p.operators[3] = { ...defaultOp(), ratio: 1.00, level: 0.565, modA: 0, modB: 0 }; // Op D (Root Pitch Carrier) ratio 1.00, level 144 (90 hex)
         p.feedback = 0.0;
         
-        p.env1 = { attack: 0.01, hold: 0, decay: 2.0, amount: 1.0, dest: 'volume' };
-        p.env2 = { attack: 0.005, hold: 0, decay: 0.25, amount: 0.15, dest: 'none' };
-        p.lfo1 = { shape: 'triangle', freq: 5.5, amount: 0.35, dest: 'volume' }; // MOD 3 LFO amount 0.35 -> 59 hex!
+        p.env1 = { attack: 0.001, hold: 0, decay: 0.125, amount: 1.0, dest: 'mod1' };
+        p.env2 = { attack: 0.001, hold: 0, decay: 0.094, amount: 1.0, dest: 'mod2' };
+        p.lfo1 = { shape: 'triangle', freq: 5.5, amount: 0.35, dest: 'volume' };
         p.lfo2 = { shape: 'triangle', freq: 1.0, amount: 0.0, dest: 'none' };
+        p.filter = { type: 'lowpass', cutoff: 0.81, res: 0.0 };
+        p.chorus = 0.63;
         break;
 
       case 'Sub Bass':

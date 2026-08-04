@@ -23,12 +23,27 @@ export interface OperatorParams {
   ratio: number;
   level: number;
   shape?: OscillatorType;
+  modA?: number; // 0=-----, 1=1▸LEV, 2=2▸LEV, 3=3▸LEV, 4=4▸LEV, etc.
+  modB?: number;
   attack?: number;
   decay?: number;
   sustain?: number;
   release?: number;
   pitchEnvDepth?: number;
   pitchEnvDecay?: number;
+}
+
+export const M8_MOD_STRINGS = [
+  '-----',
+  '1\u25b8LEV', '2\u25b8LEV', '3\u25b8LEV', '4\u25b8LEV',
+  '1\u25b8RAT', '2\u25b8RAT', '3\u25b8RAT', '4\u25b8RAT',
+  '1\u25b8PIT', '2\u25b8PIT', '3\u25b8PIT', '4\u25b8PIT',
+  '1\u25b8FBK', '2\u25b8FBK', '3\u25b8FBK', '4\u25b8FBK'
+];
+
+export function getM8ModString(modVal?: number): string {
+  if (!modVal || modVal < 0 || modVal >= M8_MOD_STRINGS.length) return '-----';
+  return M8_MOD_STRINGS[modVal];
 }
 
 export interface FmParams {
@@ -39,6 +54,8 @@ export interface FmParams {
   env2?: EnvParams; // M8 Assignable (AHD)
   lfo1?: LfoParams;
   lfo2?: LfoParams;
+  filter?: { type: 'lowpass' | 'off'; cutoff: number; res?: number };
+  chorus?: number;
 }
 
 class Operator {
@@ -88,11 +105,9 @@ class Operator {
     const normalizedLevel = Math.pow(Math.max(0, Math.min(1, this.params.level)), 2.0);
 
     if (this.isModulator) {
-      // Phase Modulation equivalent frequency deviation:
-      // Delta f (Hz) = (Modulation Index in Radians) * (Modulator Frequency)
-      // Index in Radians = normalizedLevel * 4.0 radians
-      const modIndexRadians = normalizedLevel * 4.0;
-      const modDevHz = modIndexRadians * this.currentFreq;
+      // Bounded PM depth to guarantee positive instantaneous frequency (prevents Web Audio oscillator aliasing/buzzing)
+      const modIndexRadians = normalizedLevel * 0.5;
+      const modDevHz = modIndexRadians * Math.min(this.currentFreq, 600);
       this.modIndexGain.gain.setValueAtTime(modDevHz, this.ctx.currentTime);
     } else {
       // Output carrier gain
@@ -166,6 +181,7 @@ class Operator {
 export class FmEngine {
   private ctx: AudioContext | null = null;
   private masterGain!: GainNode;
+  private filterNode!: BiquadFilterNode;
   private tremoloGain!: GainNode;
   private outputGain!: GainNode;
   
@@ -188,10 +204,14 @@ export class FmEngine {
   public init(audioCtx: AudioContext) {
     this.ctx = audioCtx;
     this.masterGain = this.ctx.createGain();
+    this.filterNode = this.ctx.createBiquadFilter();
+    this.filterNode.type = 'lowpass';
+    this.filterNode.frequency.value = 20000;
     this.tremoloGain = this.ctx.createGain();
     this.outputGain = this.ctx.createGain();
     
-    this.masterGain.connect(this.tremoloGain);
+    this.masterGain.connect(this.filterNode);
+    this.filterNode.connect(this.tremoloGain);
     this.tremoloGain.connect(this.outputGain);
     this.outputGain.connect(this.ctx.destination);
     
@@ -250,50 +270,156 @@ export class FmEngine {
     // Note: modIndexGain is what we connect from.
     switch (algoId) {
       case 1:
-        // Op4 -> Op3 -> Op2 -> Op1 -> Out
-        this.ops[3].modIndexGain.connect(this.ops[2].osc.frequency);
-        this.ops[2].modIndexGain.connect(this.ops[1].osc.frequency);
-        this.ops[1].modIndexGain.connect(this.ops[0].osc.frequency);
-        this.ops[0].modIndexGain.connect(this.masterGain);
+        // M8 Algo 00: A > B > C > D
+        this.ops[0].modIndexGain.connect(this.ops[1].osc.frequency);
+        this.ops[1].modIndexGain.connect(this.ops[2].osc.frequency);
+        this.ops[2].modIndexGain.connect(this.ops[3].osc.frequency);
+        this.ops[3].modIndexGain.connect(this.masterGain);
         
-        // Update isModulator flags and update levels
-        this.ops[0].setIsModulator(false);
+        this.ops[0].setIsModulator(true);
         this.ops[1].setIsModulator(true);
         this.ops[2].setIsModulator(true);
-        this.ops[3].setIsModulator(true);
+        this.ops[3].setIsModulator(false);
         break;
 
       case 2:
-        // M8 Algo 07: (Op A -> Op B) + (Op C -> Op D) -> Out
-        // ops[0] = Op A (Modulator), ops[1] = Op B (Carrier)
-        // ops[2] = Op C (Modulator), ops[3] = Op D (Carrier)
-        this.ops[0].modIndexGain.connect(this.ops[1].osc.frequency);
-        this.ops[1].modIndexGain.connect(this.masterGain);
-        
+        // M8 Algo 01: [A + B] > C > D
+        this.ops[0].modIndexGain.connect(this.ops[2].osc.frequency);
+        this.ops[1].modIndexGain.connect(this.ops[2].osc.frequency);
         this.ops[2].modIndexGain.connect(this.ops[3].osc.frequency);
         this.ops[3].modIndexGain.connect(this.masterGain);
 
-        this.ops[0].setIsModulator(true);  // Op A is Modulator
-        this.ops[1].setIsModulator(false); // Op B is Carrier
-        this.ops[2].setIsModulator(true);  // Op C is Modulator
-        this.ops[3].setIsModulator(false); // Op D is Carrier
+        this.ops[0].setIsModulator(true);
+        this.ops[1].setIsModulator(true);
+        this.ops[2].setIsModulator(true);
+        this.ops[3].setIsModulator(false);
         break;
 
       case 3:
-        // (Op4 + Op3 + Op2) -> Op1 -> Out
-        this.ops[3].modIndexGain.connect(this.ops[0].osc.frequency);
-        this.ops[2].modIndexGain.connect(this.ops[0].osc.frequency);
-        this.ops[1].modIndexGain.connect(this.ops[0].osc.frequency);
-        this.ops[0].modIndexGain.connect(this.masterGain);
+      case 4:
+        // M8 Algo 02 & 03: [A > B + C] > D / [A > B + A > C] > D
+        this.ops[0].modIndexGain.connect(this.ops[1].osc.frequency);
+        this.ops[0].modIndexGain.connect(this.ops[2].osc.frequency);
+        this.ops[1].modIndexGain.connect(this.ops[3].osc.frequency);
+        this.ops[2].modIndexGain.connect(this.ops[3].osc.frequency);
+        this.ops[3].modIndexGain.connect(this.masterGain);
 
-        this.ops[0].setIsModulator(false);
+        this.ops[0].setIsModulator(true);
         this.ops[1].setIsModulator(true);
         this.ops[2].setIsModulator(true);
-        this.ops[3].setIsModulator(true);
+        this.ops[3].setIsModulator(false);
         break;
-        
+
+      case 5:
+        // M8 Algo 04: [A + B + C] > D
+        this.ops[0].modIndexGain.connect(this.ops[3].osc.frequency);
+        this.ops[1].modIndexGain.connect(this.ops[3].osc.frequency);
+        this.ops[2].modIndexGain.connect(this.ops[3].osc.frequency);
+        this.ops[3].modIndexGain.connect(this.masterGain);
+
+        this.ops[0].setIsModulator(true);
+        this.ops[1].setIsModulator(true);
+        this.ops[2].setIsModulator(true);
+        this.ops[3].setIsModulator(false);
+        break;
+
+      case 6:
+        // M8 Algo 05: [A > B > C] + D
+        this.ops[0].modIndexGain.connect(this.ops[1].osc.frequency);
+        this.ops[1].modIndexGain.connect(this.ops[2].osc.frequency);
+        this.ops[2].modIndexGain.connect(this.masterGain);
+        this.ops[3].modIndexGain.connect(this.masterGain);
+
+        this.ops[0].setIsModulator(true);
+        this.ops[1].setIsModulator(true);
+        this.ops[2].setIsModulator(false);
+        this.ops[3].setIsModulator(false);
+        break;
+
+      case 7:
+        // M8 Algo 06: [A > B > C] + [A > B > D]
+        this.ops[0].modIndexGain.connect(this.ops[1].osc.frequency);
+        this.ops[1].modIndexGain.connect(this.ops[2].osc.frequency);
+        this.ops[1].modIndexGain.connect(this.ops[3].osc.frequency);
+        this.ops[2].modIndexGain.connect(this.masterGain);
+        this.ops[3].modIndexGain.connect(this.masterGain);
+
+        this.ops[0].setIsModulator(true);
+        this.ops[1].setIsModulator(true);
+        this.ops[2].setIsModulator(false);
+        this.ops[3].setIsModulator(false);
+        break;
+
+      case 8:
+        // M8 Algo 07: [A > B] + [C > D]
+        this.ops[0].modIndexGain.connect(this.ops[1].osc.frequency);
+        this.ops[1].modIndexGain.connect(this.masterGain);
+        this.ops[2].modIndexGain.connect(this.ops[3].osc.frequency);
+        this.ops[3].modIndexGain.connect(this.masterGain);
+
+        this.ops[0].setIsModulator(true);
+        this.ops[1].setIsModulator(false);
+        this.ops[2].setIsModulator(true);
+        this.ops[3].setIsModulator(false);
+        break;
+
+      case 9:
+        // M8 Algo 08: [A > B] + [A > C] + [A > D] (E PIANO07!)
+        this.ops[0].modIndexGain.connect(this.ops[1].osc.frequency);
+        this.ops[0].modIndexGain.connect(this.ops[2].osc.frequency);
+        this.ops[0].modIndexGain.connect(this.ops[3].osc.frequency);
+        this.ops[1].modIndexGain.connect(this.masterGain);
+        this.ops[2].modIndexGain.connect(this.masterGain);
+        this.ops[3].modIndexGain.connect(this.masterGain);
+
+        this.ops[0].setIsModulator(true);
+        this.ops[1].setIsModulator(false);
+        this.ops[2].setIsModulator(false);
+        this.ops[3].setIsModulator(false);
+        break;
+
+      case 10:
+        // M8 Algo 09: [A > B] + [A > C] + D
+        this.ops[0].modIndexGain.connect(this.ops[1].osc.frequency);
+        this.ops[0].modIndexGain.connect(this.ops[2].osc.frequency);
+        this.ops[1].modIndexGain.connect(this.masterGain);
+        this.ops[2].modIndexGain.connect(this.masterGain);
+        this.ops[3].modIndexGain.connect(this.masterGain);
+
+        this.ops[0].setIsModulator(true);
+        this.ops[1].setIsModulator(false);
+        this.ops[2].setIsModulator(false);
+        this.ops[3].setIsModulator(false);
+        break;
+
+      case 11:
+        // M8 Algo 10: [A > B] + C + D
+        this.ops[0].modIndexGain.connect(this.ops[1].osc.frequency);
+        this.ops[1].modIndexGain.connect(this.masterGain);
+        this.ops[2].modIndexGain.connect(this.masterGain);
+        this.ops[3].modIndexGain.connect(this.masterGain);
+
+        this.ops[0].setIsModulator(true);
+        this.ops[1].setIsModulator(false);
+        this.ops[2].setIsModulator(false);
+        this.ops[3].setIsModulator(false);
+        break;
+
+      case 12:
+        // M8 Algo 11: A + B + C + D
+        this.ops[0].modIndexGain.connect(this.masterGain);
+        this.ops[1].modIndexGain.connect(this.masterGain);
+        this.ops[2].modIndexGain.connect(this.masterGain);
+        this.ops[3].modIndexGain.connect(this.masterGain);
+
+        this.ops[0].setIsModulator(false);
+        this.ops[1].setIsModulator(false);
+        this.ops[2].setIsModulator(false);
+        this.ops[3].setIsModulator(false);
+        break;
+
       default:
-        console.warn(`Algorithm ${algoId} not implemented, defaulting to 1`);
+        console.warn(`Algorithm ${algoId} not recognized, defaulting to 1`);
         this.setAlgorithm(1);
         break;
     }
@@ -323,15 +449,25 @@ export class FmEngine {
     }
   }
 
-  private applyAhdToParam(param: AudioParam, time: number, env: EnvParams, baseValue: number) {
+  private applyAhdToParam(param: AudioParam, time: number, env: EnvParams, baseValue: number, isVolume: boolean = false) {
     param.cancelScheduledValues(time);
-    param.setValueAtTime(0, time);
-    param.linearRampToValueAtTime(baseValue * env.amount, time + env.attack);
-    
-    // If hold is extremely long, it acts like a sustain. Otherwise it decays.
-    if (env.hold < 100) {
-      param.linearRampToValueAtTime(baseValue * env.amount, time + env.attack + env.hold);
-      param.linearRampToValueAtTime(0, time + env.attack + env.hold + env.decay);
+    if (isVolume) {
+      // Volume envelope: 0 -> peak -> hold -> 0
+      param.setValueAtTime(0, time);
+      param.linearRampToValueAtTime(baseValue * env.amount, time + env.attack);
+      if (env.hold < 100) {
+        param.linearRampToValueAtTime(baseValue * env.amount, time + env.attack + env.hold);
+        param.linearRampToValueAtTime(0, time + env.attack + env.hold + env.decay);
+      }
+    } else {
+      // Modulator envelope: baseValue -> transient peak -> decay back to baseValue
+      const peakValue = baseValue * (1.0 + env.amount * 1.5);
+      param.setValueAtTime(baseValue, time);
+      param.linearRampToValueAtTime(peakValue, time + env.attack);
+      if (env.hold < 100) {
+        param.linearRampToValueAtTime(peakValue, time + env.attack + env.hold);
+        param.linearRampToValueAtTime(baseValue, time + env.attack + env.hold + env.decay);
+      }
     }
   }
 
@@ -342,6 +478,32 @@ export class FmEngine {
       param.cancelScheduledValues(time);
     }
     param.linearRampToValueAtTime(0, time + Math.min(env.decay, 0.2));
+  }
+
+  /**
+   * On M8 hardware, MOD buses (1-4) are assignment slots.
+   * An operator's modA field says "I receive MOD bus N on my level."
+   * So if env2.dest === 'mod2', we find ALL operators where modA === 2
+   * and apply the envelope to their modIndexGain.
+   * 
+   * For Electric Piano: Op A has modA=2, so env2 (dest='mod2') targets Op A's level.
+   * This is what creates the tine attack transient decay.
+   */
+  private applyEnvToModBus(busNum: number, time: number, env: EnvParams, _velocity: number) {
+    for (let i = 0; i < Math.min(4, this.ops.length); i++) {
+      const op = this.ops[i];
+      if (op.params.modA === busNum) {
+        const normalizedLevel = Math.pow(Math.max(0, Math.min(1, op.params.level)), 2.0);
+        let baseValue: number;
+        if (op.isModulator) {
+          const modIndexRadians = normalizedLevel * 0.5;
+          baseValue = modIndexRadians * Math.min(op.currentFreq, 600);
+        } else {
+          baseValue = normalizedLevel;
+        }
+        this.applyAhdToParam(op.modIndexGain.gain, time, env, baseValue);
+      }
+    }
   }
 
   private routeLfo(lfoOsc: OscillatorNode, lfoGain: GainNode, params: LfoParams | undefined, time: number) {
@@ -384,32 +546,48 @@ export class FmEngine {
 
     if (this.isStrictM8Mode) {
       if (this.activeEnv1) {
-        // Env1 is always master volume
-        this.applyAhdToParam(this.masterGain.gain, time, this.activeEnv1, 0.5 * velocity);
+        const env1Dest = this.activeEnv1.dest;
+        if (env1Dest === 'volume') {
+          this.applyAhdToParam(this.masterGain.gain, time, this.activeEnv1, 0.4 * velocity, true);
+        } else if (env1Dest === 'pitch') {
+          this.ops.forEach(op => {
+            const currentFreq = op.currentFreq;
+            op.osc.frequency.cancelScheduledValues(time);
+            op.osc.frequency.setValueAtTime(Math.max(0.001, currentFreq * (1.0 + this.activeEnv1!.amount)), time);
+            if (this.activeEnv1!.hold < 100) {
+              op.osc.frequency.setValueAtTime(Math.max(0.001, currentFreq * (1.0 + this.activeEnv1!.amount)), time + this.activeEnv1!.attack + this.activeEnv1!.hold);
+              op.osc.frequency.exponentialRampToValueAtTime(Math.max(0.001, currentFreq), time + this.activeEnv1!.attack + this.activeEnv1!.hold + this.activeEnv1!.decay);
+            }
+          });
+        } else {
+          // env1 targets a MOD bus (mod1..mod4). Find operators that claim this bus via modA.
+          const busNum = env1Dest === 'mod1' ? 1 : env1Dest === 'mod2' ? 2 : env1Dest === 'mod3' ? 3 : env1Dest === 'mod4' ? 4 : 0;
+          if (busNum > 0) {
+            this.applyEnvToModBus(busNum, time, this.activeEnv1, velocity);
+          }
+        }
       }
       
       if (this.activeEnv2) {
-        const dest = this.activeEnv2.dest;
-        const getModBase = (opIndex: number) => {
-          const op = this.ops[opIndex];
-          return op.params.level * 2.0 * (op.isModulator ? op.currentFreq : 1.0);
-        };
-
-        if (dest === 'mod1') this.applyAhdToParam(this.ops[0].modIndexGain.gain, time, this.activeEnv2, getModBase(0));
-        else if (dest === 'mod2') this.applyAhdToParam(this.ops[1].modIndexGain.gain, time, this.activeEnv2, getModBase(1));
-        else if (dest === 'mod3') this.applyAhdToParam(this.ops[2].modIndexGain.gain, time, this.activeEnv2, getModBase(2));
-        else if (dest === 'mod4') this.applyAhdToParam(this.ops[3].modIndexGain.gain, time, this.activeEnv2, getModBase(3));
-        else if (dest === 'pitch') {
+        const env2Dest = this.activeEnv2.dest;
+        if (env2Dest === 'volume') {
+          this.applyAhdToParam(this.masterGain.gain, time, this.activeEnv2, 0.4 * velocity, true);
+        } else if (env2Dest === 'pitch') {
           this.ops.forEach(op => {
             const currentFreq = op.currentFreq;
             op.osc.frequency.cancelScheduledValues(time);
             op.osc.frequency.setValueAtTime(Math.max(0.001, currentFreq * (1.0 + this.activeEnv2!.amount)), time);
-            
             if (this.activeEnv2!.hold < 100) {
               op.osc.frequency.setValueAtTime(Math.max(0.001, currentFreq * (1.0 + this.activeEnv2!.amount)), time + this.activeEnv2!.attack + this.activeEnv2!.hold);
               op.osc.frequency.exponentialRampToValueAtTime(Math.max(0.001, currentFreq), time + this.activeEnv2!.attack + this.activeEnv2!.hold + this.activeEnv2!.decay);
             }
           });
+        } else {
+          // env2 targets a MOD bus (mod1..mod4). Find operators that claim this bus via modA.
+          const busNum = env2Dest === 'mod1' ? 1 : env2Dest === 'mod2' ? 2 : env2Dest === 'mod3' ? 3 : env2Dest === 'mod4' ? 4 : 0;
+          if (busNum > 0) {
+            this.applyEnvToModBus(busNum, time, this.activeEnv2, velocity);
+          }
         }
       }
     }
@@ -425,15 +603,34 @@ export class FmEngine {
 
     if (this.isStrictM8Mode) {
       if (this.activeEnv1) {
-        this.releaseAhdParam(this.masterGain.gain, time, this.activeEnv1);
+        const env1Dest = this.activeEnv1.dest;
+        if (env1Dest === 'volume') {
+          this.releaseAhdParam(this.masterGain.gain, time, this.activeEnv1);
+        } else if (env1Dest === 'pitch') {
+          this.ops.forEach(op => {
+            if ('cancelAndHoldAtTime' in op.osc.frequency && typeof (op.osc.frequency as any).cancelAndHoldAtTime === 'function') {
+              (op.osc.frequency as any).cancelAndHoldAtTime(time);
+            } else {
+              op.osc.frequency.cancelScheduledValues(time);
+            }
+            op.osc.frequency.exponentialRampToValueAtTime(Math.max(0.001, op.currentFreq), time + Math.min(this.activeEnv1!.decay, 0.2));
+          });
+        } else {
+          const busNum = env1Dest === 'mod1' ? 1 : env1Dest === 'mod2' ? 2 : env1Dest === 'mod3' ? 3 : env1Dest === 'mod4' ? 4 : 0;
+          if (busNum > 0) {
+            for (let i = 0; i < Math.min(4, this.ops.length); i++) {
+              if (this.ops[i].params.modA === busNum) {
+                this.releaseAhdParam(this.ops[i].modIndexGain.gain, time, this.activeEnv1);
+              }
+            }
+          }
+        }
       }
       if (this.activeEnv2) {
-        const dest = this.activeEnv2.dest;
-        if (dest === 'mod1') this.releaseAhdParam(this.ops[0].modIndexGain.gain, time, this.activeEnv2);
-        else if (dest === 'mod2') this.releaseAhdParam(this.ops[1].modIndexGain.gain, time, this.activeEnv2);
-        else if (dest === 'mod3') this.releaseAhdParam(this.ops[2].modIndexGain.gain, time, this.activeEnv2);
-        else if (dest === 'mod4') this.releaseAhdParam(this.ops[3].modIndexGain.gain, time, this.activeEnv2);
-        else if (dest === 'pitch') {
+        const env2Dest = this.activeEnv2.dest;
+        if (env2Dest === 'volume') {
+          this.releaseAhdParam(this.masterGain.gain, time, this.activeEnv2);
+        } else if (env2Dest === 'pitch') {
           this.ops.forEach(op => {
             if ('cancelAndHoldAtTime' in op.osc.frequency && typeof (op.osc.frequency as any).cancelAndHoldAtTime === 'function') {
               (op.osc.frequency as any).cancelAndHoldAtTime(time);
@@ -442,6 +639,15 @@ export class FmEngine {
             }
             op.osc.frequency.exponentialRampToValueAtTime(Math.max(0.001, op.currentFreq), time + Math.min(this.activeEnv2!.decay, 0.2));
           });
+        } else {
+          const busNum = env2Dest === 'mod1' ? 1 : env2Dest === 'mod2' ? 2 : env2Dest === 'mod3' ? 3 : env2Dest === 'mod4' ? 4 : 0;
+          if (busNum > 0) {
+            for (let i = 0; i < Math.min(4, this.ops.length); i++) {
+              if (this.ops[i].params.modA === busNum) {
+                this.releaseAhdParam(this.ops[i].modIndexGain.gain, time, this.activeEnv2);
+              }
+            }
+          }
         }
       }
     }
@@ -459,6 +665,15 @@ export class FmEngine {
     if (this.ctx) {
       this.routeLfo(this.lfo1Osc, this.lfo1Gain, params.lfo1, this.ctx.currentTime);
       this.routeLfo(this.lfo2Osc, this.lfo2Gain, params.lfo2, this.ctx.currentTime);
+      if (this.filterNode) {
+        if (params.filter && params.filter.type === 'lowpass') {
+          this.filterNode.type = 'lowpass';
+          const cutoffHz = Math.max(20, Math.min(20000, 20 * Math.pow(1000, params.filter.cutoff)));
+          this.filterNode.frequency.setTargetAtTime(cutoffHz, this.ctx.currentTime, 0.01);
+        } else {
+          this.filterNode.frequency.setTargetAtTime(20000, this.ctx.currentTime, 0.01);
+        }
+      }
     }
 
     for (let i = 0; i < params.operators.length; i++) {
@@ -466,6 +681,8 @@ export class FmEngine {
       this.setOperatorParam(i, 'ratio', op.ratio);
       this.setOperatorParam(i, 'level', op.level);
       if (op.shape) this.setOperatorParam(i, 'shape', op.shape);
+      if (op.modA !== undefined) this.setOperatorParam(i, 'modA', op.modA);
+      if (op.modB !== undefined) this.setOperatorParam(i, 'modB', op.modB);
       // Optional legacy params
       if (op.attack !== undefined) this.setOperatorParam(i, 'attack', op.attack);
       if (op.decay !== undefined) this.setOperatorParam(i, 'decay', op.decay);

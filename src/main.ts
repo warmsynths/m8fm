@@ -4,6 +4,7 @@ import { styleMap } from 'lit/directives/style-map.js';
 
 import './style.css';
 import { AudioController } from './audio/AudioController';
+import { getM8ModString } from './audio/FmEngine';
 import { AnchorMacroConfig, type AnchorName } from './audio/MacroMapper';
 import { MACHINES } from './ui/MachineData';
 import { SysExParser, type Dx7Patch } from './audio/SysExParser';
@@ -374,9 +375,21 @@ export class FmStudio extends LitElement {
                 ${(() => {
                   const fm = audio.getFmParams();
                   const hx = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).toUpperCase().padStart(2, '0');
-                  const ALGO_MAP: Record<string, string> = { ep:'A>B+C>D', sb:'A>B>C>D', ml:'A+B>C>D', pd:'(A+B)>(C+D)', dg:'A>B>C+D', vl:'A>B+C+D' };
-                  const DEST_COL = ['B', 'C', 'D', 'D'];
-
+                  const M8_ALGO_STRINGS = [
+                    'A>B>C>D',
+                    '[A+B]>C>D',
+                    '[A>B+C]>D',
+                    '[A>B+A>C]>D',
+                    '[A+B+C]>D',
+                    '[A>B>C]+D',
+                    '[A>B>C]+[A>B>D]',
+                    '[A>B]+[C>D]',
+                    '[A>B]+[A>C]+[A>D]',
+                    '[A>B]+[A>C]+D',
+                    '[A>B]+C+D',
+                    'A+B+C+D'
+                  ];
+                  const fmAlgo = (fm?.algorithm && M8_ALGO_STRINGS[fm.algorithm - 1]) || M8_ALGO_STRINGS[0];
                   const m8Ops = fm?.operators ? [fm.operators[0], fm.operators[1], fm.operators[2], fm.operators[3]] : [];
                   const getShapeStr = (shape?: string) => {
                     if (shape === 'square') return 'SQR';
@@ -384,8 +397,6 @@ export class FmStudio extends LitElement {
                     if (shape === 'triangle') return 'TRI';
                     return 'SIN';
                   };
-
-                  const fmAlgo = ALGO_MAP[mach.id] || (fm?.algorithm === 1 ? 'A>B>C>D' : fm?.algorithm === 2 ? 'A>B+C>D' : 'A+B+C>D');
                   
                   const fmOps = ['A','B','C','D'].map((id, i) => {
                     const opObj = m8Ops[i];
@@ -398,12 +409,8 @@ export class FmStudio extends LitElement {
                       ratio: ratioVal.toFixed(2),
                       lev: hx(levVal),
                       fb: hx(fbVal),
-                      mod1: (() => {
-                        if (levVal === 0) return '-----';
-                        const j = DEST_COL.indexOf(id);
-                        return j === -1 ? '-----' : (j + 1) + '\u25b8LEV';
-                      })(),
-                      mod2: '-----'
+                      mod1: getM8ModString(opObj?.modA !== undefined ? opObj.modA : (i === 0 ? (fm?.env2?.dest === 'mod2' ? 2 : fm?.env2?.dest === 'mod1' ? 1 : 0) : 0)),
+                      mod2: getM8ModString(opObj?.modB)
                     };
                   });
 
@@ -420,19 +427,19 @@ export class FmStudio extends LitElement {
                   });
 
                   const fmFilterChips = [
-                    { name: 'TYPE', val: mach.id === 'vl' ? 'LP' : 'OFF' },
-                    { name: 'CUTOFF', val: mach.id === 'vl' ? hx(vals[2] * 2.55) : 'FF' },
-                    { name: 'RES', val: '00' }
+                    { name: 'TYPE', val: fm?.filter?.type === 'lowpass' ? 'LP' : 'OFF' },
+                    { name: 'CUTOFF', val: fm?.filter?.type === 'lowpass' ? hx(fm.filter.cutoff * 255) : 'FF' },
+                    { name: 'RES', val: fm?.filter?.res !== undefined ? hx(fm.filter.res * 255) : '00' }
                   ];
 
                   const fmOutChips = [
                     { name: 'AMP', val: hx((vals[0] || 70) * 2.55) },
                     { name: 'LIM', val: '00' },
-                    { name: 'PAN', val: hx((vals[1] || 50) * 2.55) },
-                    { name: 'DRY', val: hx(255) },
-                    { name: 'CHO', val: hx((vals[2] || 0) * 0.8) },
+                    { name: 'PAN', val: hx(128) },
+                    { name: 'DRY', val: hx(192) },
+                    { name: 'CHO', val: fm?.chorus !== undefined ? hx(fm.chorus * 255) : hx(0) },
                     { name: 'DEL', val: hx(0) },
-                    { name: 'REV', val: hx((vals[3] || 0) * 1.2) }
+                    { name: 'REV', val: hx(0) }
                   ];
 
                   return html`

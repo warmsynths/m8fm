@@ -49,7 +49,7 @@ export const MACHINES: Machine[] = [
         ];
       }]
     ],
-    presets: [['Classic MK1', [62, 74, 38, 46]], ['Glassy Rhodes', [88, 40, 12, 58]], ['Dirty Wurli', [44, 86, 72, 30]]]
+    presets: [['Classic MK1', [0, 50, 50, 35]], ['Glassy Rhodes', [50, 40, 30, 58]], ['Dirty Wurli', [0, 80, 80, 20]]]
   },
 
   {

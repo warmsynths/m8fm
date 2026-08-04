@@ -21,24 +21,37 @@ export class M8Serializer {
       
       // M8 ratio: integer 0-15
       m8Op.ratio = Math.floor(opParams.ratio);
-      // M8 ratioFine: fractional 0-255
-      m8Op.ratioFine = Math.floor((opParams.ratio % 1) * 255);
+      // M8 ratioFine: fractional 0-99
+      m8Op.ratioFine = Math.round((opParams.ratio % 1) * 100);
       
-      // Level 0-128
-      m8Op.level = Math.floor(opParams.level * 127);
+      // Level 0-255 (00..FF hex)
+      m8Op.level = Math.min(255, Math.round(opParams.level * 255));
       m8Op.shape = 0; // Sine
+
+      m8Op.modA = opParams.modA !== undefined ? opParams.modA : (i === 0 && params.env2?.dest === 'mod2' ? 2 : i === 0 && params.env2?.dest === 'mod1' ? 1 : 0);
+      m8Op.modB = opParams.modB !== undefined ? opParams.modB : 0;
     }
 
-    // Set feedback for Op1 (if algo allows, typically M8 has feedback on Op1 or 4 depending on algo)
-    // We'll set feedback on operator 0 (which is Op1 in our engine)
-    instr.instrParams.operators[0].feedback = Math.floor(params.feedback * 127);
+    instr.instrParams.mod1 = 128;
+    instr.instrParams.mod2 = 32;
 
     // Envelopes
+    const destMap: Record<string, number> = {
+      'none': 0,
+      'volume': 1,
+      'pitch': 2,
+      'mod1': 3,
+      'mod2': 4,
+      'mod3': 5,
+      'mod4': 6
+    };
+
     if (params.env1) {
-      // Env1 is always Volume on M8
       instr.envelopes[0].attack = Math.min(255, Math.floor(params.env1.attack * 255));
       instr.envelopes[0].hold = params.env1.hold >= 999 ? 255 : Math.min(254, Math.floor(params.env1.hold * 255));
       instr.envelopes[0].decay = Math.min(255, Math.floor(params.env1.decay * 255));
+      instr.envelopes[0].amount = Math.min(255, Math.floor(params.env1.amount * 255));
+      instr.envelopes[0].dest = destMap[params.env1.dest] !== undefined ? destMap[params.env1.dest] : 1;
     }
 
     if (params.env2) {
@@ -46,17 +59,7 @@ export class M8Serializer {
       instr.envelopes[1].hold = params.env2.hold >= 999 ? 255 : Math.min(254, Math.floor(params.env2.hold * 255));
       instr.envelopes[1].decay = Math.min(255, Math.floor(params.env2.decay * 255));
       instr.envelopes[1].amount = Math.min(255, Math.floor(params.env2.amount * 255));
-      
-      const destMap: Record<string, number> = {
-        'none': 0,
-        'volume': 1,
-        'pitch': 2,
-        'mod1': 3,
-        'mod2': 4,
-        'mod3': 5,
-        'mod4': 6
-      };
-      instr.envelopes[1].dest = destMap[params.env2.dest] || 0;
+      instr.envelopes[1].dest = destMap[params.env2.dest] !== undefined ? destMap[params.env2.dest] : 0;
     }
 
     // LFOs
@@ -90,6 +93,18 @@ export class M8Serializer {
 
     mapLfo(params.lfo1, instr.lfos[0]);
     mapLfo(params.lfo2, instr.lfos[1]);
+
+    // Filter
+    if (params.filter && params.filter.type === 'lowpass') {
+      instr.filterParams.type = 1; // LP
+      instr.filterParams.cutoff = Math.floor(params.filter.cutoff * 255);
+      instr.filterParams.res = Math.floor((params.filter.res || 0) * 255);
+    }
+
+    // Mixer Chorus
+    if (params.chorus !== undefined) {
+      instr.mixerParams.cho = Math.floor(params.chorus * 255);
+    }
 
     // Dump to binary
     return dumpM8File(instr);
