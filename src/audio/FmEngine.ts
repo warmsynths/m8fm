@@ -82,14 +82,21 @@ class Operator {
 
   public setFrequency(baseFreq: number) {
     this.currentFreq = baseFreq * this.params.ratio;
-    // We'll set the initial frequency here, but triggerNoteOn may override it for pitch envelopes
     this.osc.frequency.setValueAtTime(this.currentFreq, this.ctx.currentTime);
     
-    // Modulation index scales with frequency to keep timbre consistent across keyboard
+    // Exponential level response curve (0..1) matching hardware VCA/PM depth
+    const normalizedLevel = Math.pow(Math.max(0, Math.min(1, this.params.level)), 2.0);
+
     if (this.isModulator) {
-      this.modIndexGain.gain.setValueAtTime(this.currentFreq * this.params.level * 2.0, this.ctx.currentTime);
+      // Phase Modulation equivalent frequency deviation:
+      // Delta f (Hz) = (Modulation Index in Radians) * (Modulator Frequency)
+      // Index in Radians = normalizedLevel * 4.0 radians
+      const modIndexRadians = normalizedLevel * 4.0;
+      const modDevHz = modIndexRadians * this.currentFreq;
+      this.modIndexGain.gain.setValueAtTime(modDevHz, this.ctx.currentTime);
     } else {
-      this.modIndexGain.gain.setValueAtTime(this.params.level, this.ctx.currentTime);
+      // Output carrier gain
+      this.modIndexGain.gain.setValueAtTime(normalizedLevel, this.ctx.currentTime);
     }
   }
 
@@ -257,17 +264,19 @@ export class FmEngine {
         break;
 
       case 2:
-        // (Op4 -> Op3) + (Op2 -> Op1) -> Out
-        this.ops[3].modIndexGain.connect(this.ops[2].osc.frequency);
-        this.ops[2].modIndexGain.connect(this.masterGain);
+        // M8 Algo 07: (Op A -> Op B) + (Op C -> Op D) -> Out
+        // ops[0] = Op A (Modulator), ops[1] = Op B (Carrier)
+        // ops[2] = Op C (Modulator), ops[3] = Op D (Carrier)
+        this.ops[0].modIndexGain.connect(this.ops[1].osc.frequency);
+        this.ops[1].modIndexGain.connect(this.masterGain);
         
-        this.ops[1].modIndexGain.connect(this.ops[0].osc.frequency);
-        this.ops[0].modIndexGain.connect(this.masterGain);
+        this.ops[2].modIndexGain.connect(this.ops[3].osc.frequency);
+        this.ops[3].modIndexGain.connect(this.masterGain);
 
-        this.ops[0].setIsModulator(false);
-        this.ops[1].setIsModulator(true);
-        this.ops[2].setIsModulator(false); // Op3 acts as carrier here
-        this.ops[3].setIsModulator(true);
+        this.ops[0].setIsModulator(true);  // Op A is Modulator
+        this.ops[1].setIsModulator(false); // Op B is Carrier
+        this.ops[2].setIsModulator(true);  // Op C is Modulator
+        this.ops[3].setIsModulator(false); // Op D is Carrier
         break;
 
       case 3:
@@ -292,7 +301,7 @@ export class FmEngine {
 
   public setOperatorParam(opIndex: number, param: keyof OperatorParams, value: any) {
     if (opIndex < 0 || opIndex >= this.ops.length) return;
-    this.ops[opIndex].params[param] = value;
+    (this.ops[opIndex].params as any)[param] = value;
     if (param === 'shape' && value) {
       this.ops[opIndex].osc.type = value as OscillatorType;
     }
@@ -308,8 +317,9 @@ export class FmEngine {
     this.currentFeedbackAmount = amount;
     if (this.ctx) {
       const baseFreq = this.ops[0]?.currentFreq || 440;
-      // Frequency-proportional feedback depth for consistent timbre across octaves
-      this.feedbackGain.gain.setTargetAtTime(amount * baseFreq * 0.5, this.ctx.currentTime, 0.01);
+      const normalizedFb = Math.pow(Math.max(0, Math.min(1, amount)), 2.0);
+      const fbDevHz = normalizedFb * 1.5 * baseFreq;
+      this.feedbackGain.gain.setTargetAtTime(fbDevHz, this.ctx.currentTime, 0.01);
     }
   }
 

@@ -72,25 +72,27 @@ export class MacroMapper {
 
   private applyElectricPianoMath(params: FmParams) {
     const tine = this.getMacroVal('Tine Material');
-    const ratios = [2.0, 3.0, 4.0, 5.0, 7.0, 14.0];
-    const tineIndex = Math.min(ratios.length - 1, Math.floor(tine * ratios.length));
-    params.operators[3].ratio = ratios[tineIndex];
+    params.operators[3].ratio = 1.0 + Math.floor(tine * 0.0);
+    params.operators[3].level = 0.0;
 
     const strike = this.getMacroVal('Strike Force');
     if (params.env2) {
-      params.env2.amount = 0.05 + strike * 0.2;
-      params.env2.decay = 0.3 - strike * 0.1;
+      params.env2.amount = strike * 0.1;
+      params.env2.decay = 0.05 + (1.0 - strike) * 0.4;
+    }
+    if (params.env1) {
+      params.env1.attack = 0.001 + (1.0 - strike) * 0.03;
     }
 
     const bark = this.getMacroVal('Bark');
-    params.feedback += bark * 0.15;
-    params.operators[1].level += bark * 0.1;
+    params.feedback = 0.0; // Strictly 00 hex - no saw self-feedback
+    params.operators[0].level = 0.03 + bark * 0.04; // Low level 08..10 hex (pure sine modulation)
 
     const tremolo = this.getMacroVal('Tremolo Depth');
     if (params.lfo1) {
       params.lfo1.dest = 'volume';
-      params.lfo1.amount = tremolo * 0.8;
-      params.lfo1.freq = 4.0 + tremolo * 4.0;
+      params.lfo1.amount = 0.15 + tremolo * 0.2; // Tamed LFO 26..59 hex
+      params.lfo1.freq = 3.0 + tremolo * 4.0;
     }
   }
 
@@ -245,67 +247,86 @@ export class MacroMapper {
     switch (anchor) {
       case 'Electric Piano':
         p.algorithm = 2;
-        p.operators[0] = { ...defaultOp(), level: 1.0 };
-        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.05 };
-        p.operators[2] = { ...defaultOp(), level: 0.5 };
-        p.operators[3] = { ...defaultOp(), ratio: 14.0, level: 1.0 };
+        p.operators[0] = { ...defaultOp(), ratio: 1.0, level: 0.15 }; // Op A (Modulator -> B) level 26
+        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 1.0 };  // Op B (Carrier 1 Out) level FF
+        p.operators[2] = { ...defaultOp(), ratio: 1.0, level: 0.0 };   // Op C level 00
+        p.operators[3] = { ...defaultOp(), ratio: 1.0, level: 0.45 }; // Op D (Carrier 2 Out) level 73
+        p.feedback = 0.0;
         
-        p.env1 = { attack: 0.01, hold: 0, decay: 2.0, amount: 1.0, dest: 'none' };
-        p.env2 = { attack: 0.01, hold: 0, decay: 0.3, amount: 0.05, dest: 'mod4' };
+        p.env1 = { attack: 0.01, hold: 0, decay: 2.0, amount: 1.0, dest: 'volume' };
+        p.env2 = { attack: 0.005, hold: 0, decay: 0.25, amount: 0.15, dest: 'none' };
+        p.lfo1 = { shape: 'triangle', freq: 5.5, amount: 0.35, dest: 'volume' }; // MOD 3 LFO amount 0.35 -> 59 hex!
+        p.lfo2 = { shape: 'triangle', freq: 1.0, amount: 0.0, dest: 'none' };
         break;
 
       case 'Sub Bass':
         p.algorithm = 3;
-        p.operators[0] = { ...defaultOp(), ratio: 0.25, level: 1.0 }; // 2 octaves down
-        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.0 };
-        p.operators[2] = { ...defaultOp(), ratio: 1.0, level: 0.0 };
-        p.operators[3] = { ...defaultOp(), ratio: 2.0, level: 0.0 };
+        p.operators[0] = { ...defaultOp(), ratio: 0.5, level: 1.0 };  // Op A Sub Carrier (FF)
+        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.40 }; // Op B Modulator (66)
+        p.operators[2] = { ...defaultOp(), ratio: 2.0, level: 0.20 }; // Op C Modulator (33)
+        p.operators[3] = { ...defaultOp(), ratio: 3.0, level: 0.10 }; // Op D Modulator (1A)
+        p.feedback = 0.15;
         
-        p.env1 = { attack: 0.01, hold: 999, decay: 0.4, amount: 1.0, dest: 'none' };
-        p.env2 = { attack: 0.01, hold: 0, decay: 0.1, amount: 0.0, dest: 'pitch' };
+        p.env1 = { attack: 0.005, hold: 999, decay: 0.4, amount: 1.0, dest: 'volume' };
+        p.env2 = { attack: 0.001, hold: 0, decay: 0.15, amount: 0.25, dest: 'pitch' };
+        p.lfo1 = { shape: 'triangle', freq: 1.0, amount: 0.0, dest: 'none' };
+        p.lfo2 = { shape: 'triangle', freq: 1.0, amount: 0.0, dest: 'none' };
         break;
 
       case 'Mallet':
-        p.algorithm = 3;
-        p.operators[0] = { ...defaultOp(), level: 1.0 };
-        p.operators[1] = { ...defaultOp(), ratio: 2.0, level: 0.1 };
-        p.operators[2] = { ...defaultOp(), ratio: 3.0, level: 0.05 };
-        p.operators[3] = { ...defaultOp(), ratio: 15.0, level: 0.0 };
+        p.algorithm = 2;
+        p.operators[0] = { ...defaultOp(), ratio: 3.5, level: 0.35 }; // Inharmonic metallic ratio (59)
+        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 1.0 };  // Carrier 1 (FF)
+        p.operators[2] = { ...defaultOp(), ratio: 9.2, level: 0.25 }; // Glassy high ring (40)
+        p.operators[3] = { ...defaultOp(), ratio: 1.0, level: 0.60 }; // Carrier 2 (9E)
+        p.feedback = 0.05;
         
-        p.env1 = { attack: 0.005, hold: 0, decay: 1.0, amount: 1.0, dest: 'none' };
-        p.env2 = { attack: 0.005, hold: 0, decay: 0.05, amount: 0.0, dest: 'mod4' };
+        p.env1 = { attack: 0.001, hold: 0, decay: 0.8, amount: 1.0, dest: 'volume' };
+        p.env2 = { attack: 0.001, hold: 0, decay: 0.12, amount: 0.45, dest: 'mod2' };
+        p.lfo1 = { shape: 'triangle', freq: 1.0, amount: 0.0, dest: 'none' };
+        p.lfo2 = { shape: 'triangle', freq: 1.0, amount: 0.0, dest: 'none' };
         break;
 
       case 'Pad':
         p.algorithm = 2;
-        p.operators[0] = { ...defaultOp(), level: 1.0 }; // Max carrier level
-        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.05 };
-        p.operators[2] = { ...defaultOp(), ratio: 1.0, level: 1.0 }; // Max carrier level
-        p.operators[3] = { ...defaultOp(), ratio: 2.0, level: 0.0 };
+        p.operators[0] = { ...defaultOp(), ratio: 1.0, level: 0.08 }; // Op A (14)
+        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.90 }; // Op B Carrier (E6)
+        p.operators[2] = { ...defaultOp(), ratio: 2.0, level: 0.10 }; // Op C (1A)
+        p.operators[3] = { ...defaultOp(), ratio: 1.0, level: 0.90 }; // Op D Carrier (E6)
+        p.feedback = 0.08;
         
-        p.env1 = { attack: 0.8, hold: 999, decay: 2.5, amount: 1.0, dest: 'none' };
-        p.env2 = { attack: 1.5, hold: 999, decay: 2.5, amount: 0.02, dest: 'mod4' };
+        p.env1 = { attack: 0.6, hold: 0.5, decay: 3.0, amount: 1.0, dest: 'volume' };
+        p.env2 = { attack: 1.2, hold: 0.2, decay: 2.5, amount: 0.20, dest: 'mod2' };
+        p.lfo1 = { shape: 'sine', freq: 0.8, amount: 0.15, dest: 'pitch' };
+        p.lfo2 = { shape: 'triangle', freq: 1.0, amount: 0.0, dest: 'none' };
         break;
 
       case 'Digital Glitch':
-        p.algorithm = 2;
-        p.feedback = 0.1;
-        p.operators[0] = { ...defaultOp(), level: 1.0 };
-        p.operators[1] = { ...defaultOp(), ratio: 7.0, level: 0.3 };
-        p.operators[2] = { ...defaultOp(), ratio: 0.25, level: 0.8 };
-        p.operators[3] = { ...defaultOp(), ratio: 11.0, level: 0.4 };
+        p.algorithm = 1;
+        p.feedback = 0.35;
+        p.operators[0] = { ...defaultOp(), ratio: 7.13, level: 0.65 }; // Harsh ratio (A6)
+        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.80 };  // Modulator (CC)
+        p.operators[2] = { ...defaultOp(), ratio: 0.25, level: 1.0 };  // Sub Carrier (FF)
+        p.operators[3] = { ...defaultOp(), ratio: 11.45, level: 0.50 };// High glitch (80)
         
-        p.env1 = { attack: 0.01, hold: 999, decay: 0.1, amount: 1.0, dest: 'none' };
-        p.env2 = { attack: 0.01, hold: 0, decay: 0.1, amount: 0.0, dest: 'pitch' };
+        p.env1 = { attack: 0.001, hold: 0, decay: 0.15, amount: 1.0, dest: 'volume' };
+        p.env2 = { attack: 0.001, hold: 0, decay: 0.08, amount: 0.60, dest: 'pitch' };
+        p.lfo1 = { shape: 'square', freq: 12.0, amount: 0.40, dest: 'pitch' };
+        p.lfo2 = { shape: 'sawtooth', freq: 8.0, amount: 0.30, dest: 'mod1' };
         break;
 
       case 'Vintage Lead':
-        p.algorithm = 1;
-        p.operators[0] = { ...defaultOp(), level: 1.0 };
-        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.0 };
+        p.algorithm = 3;
+        p.operators[0] = { ...defaultOp(), ratio: 1.0, level: 1.0 };  // Op A Lead Carrier (FF)
+        p.operators[1] = { ...defaultOp(), ratio: 1.0, level: 0.55 }; // Op B Saw Modulator (8C)
+        p.operators[2] = { ...defaultOp(), ratio: 2.0, level: 0.25 }; // Op C Octave Modulator (40)
+        p.operators[3] = { ...defaultOp(), ratio: 3.0, level: 0.12 }; // Op D 5th Modulator (1F)
+        p.feedback = 0.20;
         
-        p.env1 = { attack: 0.05, hold: 999, decay: 0.2, amount: 1.0, dest: 'none' };
-        p.env2 = { attack: 0.005, hold: 0, decay: 0.5, amount: 0.0, dest: 'mod2' };
+        p.env1 = { attack: 0.02, hold: 0.1, decay: 1.5, amount: 1.0, dest: 'volume' };
+        p.env2 = { attack: 0.005, hold: 0, decay: 0.5, amount: 0.15, dest: 'pitch' };
+        p.lfo1 = { shape: 'triangle', freq: 5.0, amount: 0.20, dest: 'pitch' };
+        p.lfo2 = { shape: 'triangle', freq: 1.0, amount: 0.0, dest: 'none' };
         break;
     }
 

@@ -323,42 +323,41 @@ export class FmStudio extends LitElement {
 
             </div>
 
-            <div style="flex:1;padding:16px 18px 18px;display:flex;flex-direction:column;gap:16px;min-height:0;overflow-y:auto">
+            <div style="flex:1;padding:16px 18px 18px;overflow-y:auto">
               
-              <div style="display:flex;gap:6px;flex-wrap:wrap;flex:none">
+              <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px">
                 ${mach.presets.map((pr, idx) => {
                   const isSel = idx === pi;
-                  const bg = isSel ? '#101010' : 'transparent';
-                  const fg = isSel ? '#fff' : 'rgba(0,0,0,.55)';
-                  const border = isSel ? '#101010' : 'rgba(0,0,0,.16)';
+                  const bg = isSel ? '#101010' : '#e2e0dc';
+                  const fg = isSel ? '#fff' : 'rgba(0,0,0,.65)';
+                  const border = isSel ? '#101010' : 'rgba(0,0,0,.18)';
                   return html`
-                    <button type="button" @click=${() => this.selectPreset(idx)} style="border:1px solid ${border};background:${bg};padding:6px 12px;border-radius:4px;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.08em;color:${fg};white-space:nowrap;transition:all 0.15s ease">${pr[0]}</button>
+                    <button type="button" @click=${() => this.selectPreset(idx)} style="border:1px solid ${border};background:${bg};color:${fg};padding:9px 16px;border-radius:20px;cursor:pointer;font:500 12px 'Space Grotesk',sans-serif;white-space:nowrap;transition:transform 150ms cubic-bezier(.23,1,.32,1),background-color 150ms ease,border-color 150ms ease">${pr[0]}</button>
                   `;
                 })}
               </div>
 
-              <div style="display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:12px;flex:1;min-height:150px">
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
                 ${mach.mods.map((m, i) => {
                   const v = vals[i];
                   const pct = v.toFixed(1) + '%';
                   const vars = getVars(v);
-                  const fmLabel = (1 + Math.round(v / 100 * 7)) + '.' + String(Math.round(v * 2) % 1000).padStart(3, '0');
                   
                   return html`
-                    <div @pointerdown=${(e: PointerEvent) => this.handleDown(e, i, false)} @wheel=${(e: WheelEvent) => this.handleWheel(e, i)} style="display:flex;border-radius:5px;overflow:hidden;border:1px solid rgba(0,0,0,.18);cursor:ns-resize;touch-action:none;user-select:none;min-height:75px">
+                    <div @pointerdown=${(e: PointerEvent) => this.handleDown(e, i, false)} @wheel=${(e: WheelEvent) => this.handleWheel(e, i)} style="display:flex;height:150px;border-radius:5px;overflow:hidden;border:1px solid rgba(0,0,0,.18);cursor:ns-resize;touch-action:none;user-select:none">
                       <div style="flex:1;background:#17170f;padding:13px;display:flex;flex-direction:column;justify-content:space-between">
                         <div>
-                          <div style="font:500 12.5px/1.2 'JetBrains Mono',monospace;letter-spacing:.06em;color:#dcd9c6;white-space:pre-line">MOD${i + 1}</div>
-                          <div style="font:400 9px/1.45 'Space Grotesk',sans-serif;color:rgba(220,217,198,.42);margin-top:2px;text-transform:uppercase">${m[0]}</div>
+                          <div style="font:500 11.5px/1.2 'JetBrains Mono',monospace;letter-spacing:.06em;color:#dcd9c6;white-space:pre-line">${m[0]}</div>
+                          <div style="font:400 10px/1.45 'Space Grotesk',sans-serif;color:rgba(220,217,198,.42);margin-top:6px">${m[1]}</div>
                         </div>
                         <svg width="42" height="42" viewBox="0 0 24 24" fill="none" style=${styleMap({ color: '#dcd9c6', ...vars as any })}>
                           ${this.renderPaths((m[2] as (v: number) => any[])(v / 100))}
                         </svg>
                       </div>
                       <div style="width:104px;background:#e6e3d4;padding:13px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end">
-                        <div style="font:700 30px/1 'JetBrains Mono',monospace;letter-spacing:-.02em;color:#17170f">${(i => { const toHex = (v: number) => Math.min(128, Math.round(v * 128)).toString(16).toUpperCase().padStart(2, '0'); return toHex(v / 100); })(i)}</div>
+                        <div style="font:700 30px/1 'JetBrains Mono',monospace;letter-spacing:-.02em;color:#17170f">${v.toFixed(1)}</div>
                         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;width:100%">
-                          <div style="font:500 11px 'JetBrains Mono',monospace;color:rgba(23,23,15,.45)">${v.toFixed(1)}%</div>
+                          <div style="font:500 11px 'JetBrains Mono',monospace;color:rgba(23,23,15,.45)">${(1 + Math.round(v / 100 * 7)) + '.' + String(Math.round(v * 2) % 1000).padStart(3, '0')}</div>
                           <div style="width:100%;height:5px;background:rgba(23,23,15,.16)"><div style="height:5px;width:${pct};background:#17170f"></div></div>
                         </div>
                       </div>
@@ -367,156 +366,217 @@ export class FmStudio extends LitElement {
                 })}
               </div>
               
-              <button type="button" @click=${() => this.adv = !this.adv} style="flex:none;background:none;border:none;padding:0;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.5);display:flex;align-items:center;gap:7px">
+              <button type="button" @click=${() => this.adv = !this.adv} style="margin-top:14px;background:none;border:none;padding:0;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.5);display:flex;align-items:center;gap:7px">
                 <span style="display:inline-block;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;transform:rotate(${this.adv ? '90deg' : '0deg'})"></span>FM PARAMETERS
               </button>
               
               ${this.adv ? html`
                 ${(() => {
                   const fm = audio.getFmParams();
-                  const algoStr = fm.algorithm === 1 ? 'A>B>C>D' : fm.algorithm === 2 ? 'A>B+C>D' : 'A+B+C>D';
-                  const m8Ops = [fm.operators[3], fm.operators[2], fm.operators[1], fm.operators[0]];
+                  const hx = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).toUpperCase().padStart(2, '0');
+                  const ALGO_MAP: Record<string, string> = { ep:'A>B+C>D', sb:'A>B>C>D', ml:'A+B>C>D', pd:'(A+B)>(C+D)', dg:'A>B>C+D', vl:'A>B+C+D' };
+                  const DEST_COL = ['B', 'C', 'D', 'D'];
+
+                  const m8Ops = fm?.operators ? [fm.operators[0], fm.operators[1], fm.operators[2], fm.operators[3]] : [];
                   const getShapeStr = (shape?: string) => {
-                    if (shape === 'square') return 'SQU';
+                    if (shape === 'square') return 'SQR';
                     if (shape === 'sawtooth') return 'SAW';
                     if (shape === 'triangle') return 'TRI';
                     return 'SIN';
                   };
-                  const toHex = (v: number) => Math.min(128, Math.round(v * 128)).toString(16).toUpperCase().padStart(2, '0');
+
+                  const fmAlgo = ALGO_MAP[mach.id] || (fm?.algorithm === 1 ? 'A>B>C>D' : fm?.algorithm === 2 ? 'A>B+C>D' : 'A+B+C>D');
                   
+                  const fmOps = ['A','B','C','D'].map((id, i) => {
+                    const opObj = m8Ops[i];
+                    const levVal = opObj?.level !== undefined ? opObj.level * 255 : 0;
+                    const ratioVal = opObj?.ratio !== undefined ? opObj.ratio : 1.0;
+                    const fbVal = i === 0 ? (fm?.feedback !== undefined ? fm.feedback * 63 : 0) : 0;
+                    return {
+                      id,
+                      wave: getShapeStr(opObj?.shape),
+                      ratio: ratioVal.toFixed(2),
+                      lev: hx(levVal),
+                      fb: hx(fbVal),
+                      mod: (() => { const j = DEST_COL.indexOf(id); return j === -1 ? '----' : (j + 1) + '\u25b8LEV'; })()
+                    };
+                  });
+
+                  const fmModRows = mach.mods.map((_, i) => {
+                    const amtVal = i === 0 ? (fm?.env1?.amount ?? 1) * 255
+                                 : i === 1 ? (fm?.env2?.amount ?? 0) * 255
+                                 : i === 2 ? (fm?.lfo1?.amount ?? 0) * 255
+                                 : (fm?.lfo2?.amount ?? 0) * 255;
+                    return {
+                      idx: i + 1,
+                      pct: (amtVal / 2.55).toFixed(1) + '%',
+                      label: hx(amtVal)
+                    };
+                  });
+
+                  const fmFilterChips = [
+                    { name: 'TYPE', val: mach.id === 'vl' ? 'LP' : 'OFF' },
+                    { name: 'CUTOFF', val: mach.id === 'vl' ? hx(vals[2] * 2.55) : 'FF' },
+                    { name: 'RES', val: '00' }
+                  ];
+
+                  const fmOutChips = [
+                    { name: 'AMP', val: hx((vals[0] || 70) * 2.55) },
+                    { name: 'LIM', val: '00' },
+                    { name: 'PAN', val: hx((vals[1] || 50) * 2.55) },
+                    { name: 'DRY', val: hx(255) },
+                    { name: 'CHO', val: hx((vals[2] || 0) * 0.8) },
+                    { name: 'DEL', val: hx(0) },
+                    { name: 'REV', val: hx((vals[3] || 0) * 1.2) }
+                  ];
+
                   return html`
-                    <div style="flex:none;padding:16px 24px;background:#17170f;border-radius:5px;font:500 14px/24px 'JetBrains Mono',monospace;color:#dcd9c6;letter-spacing:0.02em">
-                      
-                      <!-- Algo Row -->
-                      <div style="display:flex">
-                        <div style="width:84px;color:rgba(220,217,198,.45)">ALGO</div>
-                        <div>${algoStr}</div>
-                      </div>
-
-                      <!-- Spacer Row -->
-                      <div style="height:24px"></div>
-
-                      <!-- Operators Header Row -->
-                      <div style="display:flex">
-                        <div style="width:84px"></div>
-                        ${m8Ops.map((op, i) => html`
-                          <div style="width:72px">${['A','B','C','D'][i]} <span style="color:rgba(220,217,198,.45)">${getShapeStr(op.shape)}</span></div>
-                        `)}
-                      </div>
-
-                      <!-- Ratio Row -->
-                      <div style="display:flex">
-                        <div style="width:84px;color:rgba(220,217,198,.45)">RATIO</div>
-                        ${m8Ops.map(op => html`
-                          <div style="width:72px">${op.ratio.toFixed(2).padStart(5, '0')}</div>
-                        `)}
-                      </div>
-
-                      <!-- Lev/FB Row -->
-                      <div style="display:flex">
-                        <div style="width:84px;color:rgba(220,217,198,.45)">LEV/FB</div>
-                        ${m8Ops.map((op, i) => html`
-                          <div style="width:72px">00<span style="color:rgba(220,217,198,.45)">/${i === 3 ? toHex(fm.feedback) : '00'}</span></div>
-                        `)}
-                      </div>
-
-                      <!-- MOD Row -->
-                      <div style="display:flex">
-                        <div style="width:84px;color:rgba(220,217,198,.45)">MOD</div>
-                        ${m8Ops.map((_, i) => html`
-                          <div style="width:72px;color:#4df0cd">${i+1}&gt;LEV</div>
-                        `)}
-                      </div>
-                      
-                      <!-- Separator -->
-                      <div style="height:1px;background:rgba(220,217,198,.1);margin:16px 0"></div>
-
-                      <!-- Macros Section -->
-                      <div style="display:flex;gap:110px">
-                        
-                        <!-- Left Column -->
-                        <div>
-                          <div style="display:flex"><div style="width:68px;color:rgba(220,217,198,.45)">MOD1</div><div>${toHex(this.getVal(this.sel, 0) / 100)}<span style="color:rgba(220,217,198,.3)">|</span></div></div>
-                          <div style="display:flex"><div style="width:68px;color:rgba(220,217,198,.45)">MOD2</div><div>${toHex(this.getVal(this.sel, 1) / 100)}<span style="color:rgba(220,217,198,.3)">|</span></div></div>
-                          <div style="display:flex"><div style="width:68px;color:rgba(220,217,198,.45)">MOD3</div><div>${toHex(this.getVal(this.sel, 2) / 100)}<span style="color:rgba(220,217,198,.3)">|---</span></div></div>
-                          <div style="display:flex"><div style="width:68px;color:rgba(220,217,198,.45)">MOD4</div><div>${toHex(this.getVal(this.sel, 3) / 100)}<span style="color:rgba(220,217,198,.3)">|</span></div></div>
-                          <div style="display:flex"><div style="width:68px;color:rgba(220,217,198,.45)">FILTER</div><div>00<span style="font-size:10px">OFF</span></div></div>
-                          <div style="display:flex"><div style="width:68px;color:rgba(220,217,198,.45)">CUTOFF</div><div>FF<span style="color:rgba(220,217,198,.3)">|---</span></div></div>
-                          <div style="display:flex"><div style="width:68px;color:rgba(220,217,198,.45)">RES</div><div>00<span style="color:rgba(220,217,198,.3)">|</span></div></div>
+                    <div style="margin-top:11px;padding:15px 16px;background:#e6e3d4;border:1px solid rgba(0,0,0,.12);border-radius:5px">
+                      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:22px;flex-wrap:wrap">
+                        <div style="display:flex;align-items:baseline;gap:10px">
+                          <div style="font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.14em;color:rgba(23,23,15,.4)">ALGO</div>
+                          <div style="font:700 15px 'JetBrains Mono',monospace;color:#17170f">${fmAlgo}</div>
                         </div>
-
-                        <!-- Right Column -->
-                        <div>
-                          <div style="display:flex"><div style="width:48px;color:rgba(220,217,198,.45)">AMP</div><div>00<span style="color:rgba(220,217,198,.3)">|</span></div></div>
-                          <div style="display:flex"><div style="width:48px;color:rgba(220,217,198,.45)">LIM</div><div>00<span style="font-size:10px">CLIP</span></div></div>
-                          <div style="display:flex"><div style="width:48px;color:rgba(220,217,198,.45)">PAN</div><div>80<span style="color:rgba(220,217,198,.3)"> |</span></div></div>
-                          <div style="display:flex"><div style="width:48px;color:rgba(220,217,198,.45)">DRY</div><div>C0<span style="color:rgba(220,217,198,.3)">|---</span></div></div>
-                          <div style="display:flex"><div style="width:48px;color:rgba(220,217,198,.45)">CHO</div><div>00<span style="color:rgba(220,217,198,.3)">|</span></div></div>
-                          <div style="display:flex"><div style="width:48px;color:rgba(220,217,198,.45)">DEL</div><div>00<span style="color:rgba(220,217,198,.3)">|</span></div></div>
-                          <div style="display:flex"><div style="width:48px;color:rgba(220,217,198,.45)">REV</div><div>00<span style="color:rgba(220,217,198,.3)">|</span></div></div>
+                        <div style="display:flex;gap:24px;flex-wrap:wrap">
+                          <div style="display:flex;flex-direction:column;gap:6px">
+                            <div style="font:500 8px 'JetBrains Mono',monospace;letter-spacing:.14em;color:rgba(23,23,15,.32)">FILTER</div>
+                            <div style="display:flex;gap:14px">
+                              ${fmFilterChips.map(c => html`
+                                <div style="display:flex;flex-direction:column;gap:2px">
+                                  <div style="font:400 8.5px 'JetBrains Mono',monospace;letter-spacing:.12em;color:rgba(23,23,15,.4)">${c.name}</div>
+                                  <div style="font:500 13px 'JetBrains Mono',monospace;color:#17170f">${c.val}</div>
+                                </div>
+                              `)}
+                            </div>
+                          </div>
+                          <div style="display:flex;flex-direction:column;gap:6px">
+                            <div style="font:500 8px 'JetBrains Mono',monospace;letter-spacing:.14em;color:rgba(23,23,15,.32)">OUTPUT</div>
+                            <div style="display:flex;gap:14px;flex-wrap:wrap">
+                              ${fmOutChips.map(c => html`
+                                <div style="display:flex;flex-direction:column;gap:2px">
+                                  <div style="font:400 8.5px 'JetBrains Mono',monospace;letter-spacing:.12em;color:rgba(23,23,15,.4)">${c.name}</div>
+                                  <div style="font:500 13px 'JetBrains Mono',monospace;color:#17170f">${c.val}</div>
+                                </div>
+                              `)}
+                            </div>
+                          </div>
                         </div>
+                      </div>
 
+                      <div style="display:flex;gap:1px;background:rgba(0,0,0,.1);margin-top:14px;border-radius:4px;overflow:hidden">
+                        ${fmOps.map(o => html`
+                          <div style="flex:1;background:#e6e3d4;padding:10px 12px">
+                            <div style="font:700 12px 'JetBrains Mono',monospace;letter-spacing:.06em;color:#17170f;margin-bottom:8px">OP ${o.id}</div>
+                            <div style="display:flex;flex-direction:column;gap:5px">
+                              <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">WAVE</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.wave}</span></div>
+                              <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">RATIO</span><span style="font:700 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.ratio}</span></div>
+                              <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">LEVEL</span><span style="font:700 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.lev}</span></div>
+                              <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">FB</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.fb}</span></div>
+                              <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">MOD</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.mod}</span></div>
+                            </div>
+                          </div>
+                        `)}
+                      </div>
+
+                      <div style="display:flex;flex-direction:column;margin-top:14px;border-top:1px solid rgba(0,0,0,.1)">
+                        ${fmModRows.map(m => html`
+                          <div style="display:flex;align-items:center;gap:12px;padding:9px 2px;border-bottom:1px solid rgba(0,0,0,.08)">
+                            <div style="width:18px;height:18px;border-radius:50%;background:#17170f;color:#dcd9c6;font:600 9.5px 'JetBrains Mono',monospace;display:flex;align-items:center;justify-content:center;flex:none">${m.idx}</div>
+                            <div style="width:70px;font:500 12px 'JetBrains Mono',monospace;color:rgba(23,23,15,.55)">MOD${m.idx}</div>
+                            <div style="flex:1;height:5px;background:rgba(0,0,0,.1);border-radius:3px;overflow:hidden"><div style="height:5px;width:${m.pct};background:#17170f"></div></div>
+                            <div style="width:44px;text-align:right;font:700 12.5px 'JetBrains Mono',monospace;color:#17170f">${m.label}</div>
+                          </div>
+                        `)}
                       </div>
                     </div>
                   `;
                 })()}
               ` : nothing}
 
-              <button type="button" @click=${() => this.advMod = !this.advMod} style="flex:none;background:none;border:none;padding:0;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.5);display:flex;align-items:center;gap:7px">
-                <span style="display:inline-block;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;transform:rotate(${this.advMod ? '90deg' : '0deg'})"></span>MODULATION PAGE (OPTION+UP)
+              <button type="button" @click=${() => this.advMod = !this.advMod} style="margin-top:11px;flex:none;background:none;border:none;padding:0;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.5);display:flex;align-items:center;gap:7px">
+                <span style="display:inline-block;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;transform:rotate(${this.advMod ? '90deg' : '0deg'})"></span>MODULATORS
               </button>
 
               ${this.advMod ? html`
                 ${(() => {
                   const fm = audio.getFmParams();
-                  const m8Ops = [fm.operators[3], fm.operators[2], fm.operators[1], fm.operators[0]];
-                  const toHex = (v: number) => Math.min(128, Math.round(v * 128)).toString(16).toUpperCase().padStart(2, '0');
+                  const hx = (v: number) => Math.max(0, Math.min(255, Math.round(v))).toString(16).toUpperCase().padStart(2, '0');
                   
-                  const renderAdsr = (modNum: number, op: any) => {
-                    const atkPct = Math.min(1, op.attack ?? 0);
-                    const decPct = Math.min(1, op.decay ?? 0);
-                    const susPct = Math.min(1, op.sustain ?? 0);
-                    const relPct = Math.min(1, op.release ?? 0);
-                    const amtPct = Math.min(1, op.level ?? 1);
-                    
-                    const renderRow = (label: string, val: string, pct?: number, isCyan: boolean = false) => html`
-                      <div style="display:flex;height:14px;align-items:center">
-                        <span style="width:52px;color:rgba(220,217,198,.45)">${label}</span>
-                        <span style="color:${isCyan ? '#4df0cd' : '#dcd9c6'};display:flex;align-items:center">
-                          ${val}
-                          ${pct !== undefined 
-                            ? (pct > 0 
-                              ? html`<div style="width:42px;height:8px;background:#4df0cd;margin-left:2px;transform-origin:left;transform:scaleX(${pct})"></div>`
-                              : html`<span style="color:rgba(220,217,198,.3)">|</span>`) 
-                            : nothing
-                          }
-                        </span>
-                      </div>
-                    `;
-
-                    return html`
-                      <div style="flex:1;display:flex;flex-direction:column;gap:3px;font:500 13px 'JetBrains Mono',monospace;text-transform:uppercase">
-                        ${renderRow(`MOD${modNum}`, 'ADSR ENV', undefined, true)}
-                        ${renderRow('DEST', 'OFF')}
-                        ${renderRow('AMT', toHex(op.level), amtPct)}
-                        ${renderRow('ATK', toHex((op.attack ?? 0) * 10), atkPct)}
-                        ${renderRow('DEC', toHex((op.decay ?? 0) * 10), decPct)}
-                        ${renderRow('SUS', toHex((op.sustain ?? 0)), susPct)}
-                        ${renderRow('REL', toHex((op.release ?? 0) * 10), relPct)}
-                      </div>
-                    `;
+                  const getModDest = (i: number) => {
+                    if (i === 0) return (fm?.env1?.dest && fm.env1.dest !== 'none') ? fm.env1.dest.toUpperCase() : 'VOLUME';
+                    if (i === 1) return (fm?.env2?.dest && fm.env2.dest !== 'none') ? fm.env2.dest.toUpperCase() : (mach.id === 'sb' || mach.id === 'dg' ? 'PITCH' : mach.id === 'vl' ? 'MOD 2' : 'MOD 4');
+                    if (i === 2) return (fm?.lfo1?.dest && fm.lfo1.dest !== 'none') ? fm.lfo1.dest.toUpperCase() : (mach.id === 'ep' ? 'VOLUME' : mach.id === 'pd' ? 'PITCH' : mach.id === 'dg' ? 'MOD 1' : 'OFF');
+                    return (fm?.lfo2?.dest && fm.lfo2.dest !== 'none') ? fm.lfo2.dest.toUpperCase() : 'OFF';
                   };
-                  
+
+                  const modSlots = [
+                    {
+                      idx: 1, type: 'AHD ENV', dest: getModDest(0),
+                      amtVal: (fm?.env1?.amount ?? 1) * 255,
+                      params: [
+                        { k: 'ATK', v: hx((fm?.env1?.attack ?? 0.01) * 255) },
+                        { k: 'HOLD', v: hx((fm?.env1?.hold ?? 0) * 255) },
+                        { k: 'DEC', v: hx((fm?.env1?.decay ?? 2.0) * 127) }
+                      ]
+                    },
+                    {
+                      idx: 2, type: 'AHD ENV', dest: getModDest(1),
+                      amtVal: (fm?.env2?.amount ?? 0) * 255,
+                      params: [
+                        { k: 'ATK', v: hx((fm?.env2?.attack ?? 0.01) * 255) },
+                        { k: 'HOLD', v: hx((fm?.env2?.hold ?? 0) * 255) },
+                        { k: 'DEC', v: hx((fm?.env2?.decay ?? 0.3) * 127) }
+                      ]
+                    },
+                    {
+                      idx: 3, type: 'LFO', dest: getModDest(2),
+                      amtVal: (fm?.lfo1?.amount ?? 0) * 255,
+                      params: [
+                        { k: 'OSC', v: (fm?.lfo1?.shape ?? 'triangle').substring(0,3).toUpperCase() },
+                        { k: 'TRIG', v: 'FREE' },
+                        { k: 'FREQ', v: hx((fm?.lfo1?.freq ?? 0) * 16) }
+                      ]
+                    },
+                    {
+                      idx: 4, type: 'LFO', dest: getModDest(3),
+                      amtVal: (fm?.lfo2?.amount ?? 0) * 255,
+                      params: [
+                        { k: 'OSC', v: (fm?.lfo2?.shape ?? 'triangle').substring(0,3).toUpperCase() },
+                        { k: 'TRIG', v: 'FREE' },
+                        { k: 'FREQ', v: hx((fm?.lfo2?.freq ?? 0) * 16) }
+                      ]
+                    }
+                  ].map(s => ({
+                    ...s,
+                    amt: hx(s.amtVal),
+                    pct: (s.amtVal / 2.55).toFixed(1) + '%'
+                  }));
+
                   return html`
-                    <div style="flex:none;padding:16px 18px;background:#17170f;border-radius:5px;display:flex;flex-direction:column;gap:24px">
-                      <div style="display:flex;gap:32px">
-                        ${renderAdsr(1, m8Ops[0])}
-                        ${renderAdsr(3, m8Ops[2])}
-                      </div>
-                      <div style="display:flex;gap:32px">
-                        ${renderAdsr(2, m8Ops[1])}
-                        ${renderAdsr(4, m8Ops[3])}
-                      </div>
+                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgba(0,0,0,.1);margin-top:11px;border-radius:5px;overflow:hidden">
+                      ${modSlots.map(s => html`
+                        <div style="background:#e6e3d4;padding:12px 14px">
+                          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
+                            <div style="display:flex;align-items:center;gap:8px">
+                              <div style="width:16px;height:16px;border-radius:50%;background:#17170f;color:#dcd9c6;font:600 8.5px 'JetBrains Mono',monospace;display:flex;align-items:center;justify-content:center;flex:none">${s.idx}</div>
+                              <div style="font:600 10px 'JetBrains Mono',monospace;letter-spacing:.08em;color:#17170f">${s.type}</div>
+                            </div>
+                            <div style="font:500 9px 'JetBrains Mono',monospace;letter-spacing:.06em;color:rgba(23,23,15,.55);background:rgba(0,0,0,.06);padding:2px 6px;border-radius:3px">${s.dest}</div>
+                          </div>
+                          <div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">
+                            <div style="flex:1;height:5px;background:rgba(0,0,0,.1);border-radius:3px;overflow:hidden"><div style="height:5px;width:${s.pct};background:#17170f"></div></div>
+                            <div style="width:38px;text-align:right;font:700 12.5px 'JetBrains Mono',monospace;color:#17170f">${s.amt}</div>
+                          </div>
+                          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+                            ${s.params.map(p => html`
+                              <div style="display:flex;flex-direction:column;gap:3px">
+                                <div style="font:400 8.5px 'JetBrains Mono',monospace;letter-spacing:.1em;color:rgba(23,23,15,.4)">${p.k}</div>
+                                <div style="font:500 14px 'JetBrains Mono',monospace;color:#17170f">${p.v}</div>
+                              </div>
+                            `)}
+                          </div>
+                        </div>
+                      `)}
                     </div>
                   `;
                 })()}
