@@ -110,37 +110,106 @@ function tailRms(result: RenderResult, seconds: number): number {
   return Math.sqrt(sum / count);
 }
 
+/** In-place radix-2 FFT. */
+function fft(re: Float64Array, im: Float64Array) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) {
+      [re[i], re[j]] = [re[j], re[i]];
+      [im[i], im[j]] = [im[j], im[i]];
+    }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const angle = (-2 * Math.PI) / len;
+    const wr = Math.cos(angle);
+    const wi = Math.sin(angle);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1;
+      let ci = 0;
+      for (let k = 0; k < len / 2; k++) {
+        const ur = re[i + k];
+        const ui = im[i + k];
+        const vr = re[i + k + len / 2] * cr - im[i + k + len / 2] * ci;
+        const vi = re[i + k + len / 2] * ci + im[i + k + len / 2] * cr;
+        re[i + k] = ur + vr;
+        im[i + k] = ui + vi;
+        re[i + k + len / 2] = ur - vr;
+        im[i + k + len / 2] = ui - vi;
+        const ncr = cr * wr - ci * wi;
+        ci = cr * wi + ci * wr;
+        cr = ncr;
+      }
+    }
+  }
+}
+
+interface Spectrum {
+  power: Float64Array;
+  binHz: number;
+}
+
+/** Power spectrum of a Hann-windowed slice, so leakage cannot fake up content. */
+function spectrumAt(result: RenderResult, atSeconds: number, size: number): Spectrum {
+  const start = Math.max(0, Math.min(Math.floor(atSeconds * SAMPLE_RATE), result.samples.length - size));
+  const re = new Float64Array(size);
+  const im = new Float64Array(size);
+  for (let i = 0; i < size; i++) {
+    re[i] = result.samples[start + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (size - 1)));
+  }
+  fft(re, im);
+
+  const power = new Float64Array(size / 2);
+  for (let b = 0; b < size / 2; b++) power[b] = re[b] * re[b] + im[b] * im[b];
+  return { power, binHz: SAMPLE_RATE / size };
+}
+
 /**
- * Fraction of spectral energy sitting above `harmonic` x the played note, via a
- * naive DFT over a short window. Measuring in harmonics rather than in Hz means
- * the number describes timbre and is comparable across the keyboard: a silky FM
- * piano keeps its energy in the low partials, while a patch that has broken into
- * buzz smears it across the spectrum.
+ * Fraction of spectral energy sitting above `harmonic` x the played note.
+ * Measuring in harmonics rather than in Hz means the number describes timbre and
+ * is comparable across the keyboard.
+ *
+ * The window has to be short enough to catch what is being measured: a struck
+ * transient lasts a couple of hundred milliseconds and a long window averages it
+ * away into the sustain.
  */
-function brightness(result: RenderResult, f0: number, harmonic: number, atSeconds: number): number {
-  const size = 4096;
-  const start = Math.min(Math.floor(atSeconds * SAMPLE_RATE), result.samples.length - size);
+function brightness(result: RenderResult, f0: number, harmonic: number, atSeconds: number, size = 4096): number {
+  const { power, binHz } = spectrumAt(result, atSeconds, size);
   const edge = harmonic * f0;
   let total = 0;
   let high = 0;
-
-  for (let bin = 1; bin < size / 2; bin++) {
-    let re = 0;
-    let im = 0;
-    for (let n = 0; n < size; n++) {
-      // Hann window, so leakage does not fake up high-frequency content.
-      const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * n) / (size - 1));
-      const angle = (-2 * Math.PI * bin * n) / size;
-      const s = result.samples[start + n] * w;
-      re += s * Math.cos(angle);
-      im += s * Math.sin(angle);
-    }
-    const power = re * re + im * im;
-    total += power;
-    if ((bin * SAMPLE_RATE) / size > edge) high += power;
+  for (let b = 1; b < power.length; b++) {
+    total += power[b];
+    if (b * binHz > edge) high += power[b];
   }
-
   return total > 0 ? high / total : 0;
+}
+
+/**
+ * Fraction of spectral energy that is not sitting on a harmonic of the played
+ * note.
+ *
+ * FM throws sidebands far above the highest operator frequency, and any that
+ * cross Nyquist fold back at frequencies unrelated to the note. That fold-back
+ * is what a clangy, metallic FM patch is made of, and because it depends on
+ * absolute frequency it gets worse the higher up the keyboard you play. This is
+ * the number that catches it.
+ */
+function inharmonicEnergy(result: RenderResult, f0: number, atSeconds: number): number {
+  const size = 16384;
+  const { power, binHz } = spectrumAt(result, atSeconds, size);
+  // Hann leakage spreads a partial over a few bins either side of its peak.
+  const tolerance = 3;
+  let total = 0;
+  let off = 0;
+  for (let b = 1; b < power.length; b++) {
+    total += power[b];
+    const harmonic = (b * binHz) / f0;
+    if ((Math.abs(harmonic - Math.round(harmonic)) * f0) / binHz > tolerance) off += power[b];
+  }
+  return total > 0 ? off / total : 0;
 }
 
 describe('M8 patch model', () => {
@@ -184,9 +253,23 @@ describe('M8 patch model', () => {
 describe('Electric Piano patch', () => {
   const patch = patchFor('Electric Piano');
 
-  it('uses the E PIANO algorithm with a 3:1 tine modulator', () => {
-    expect(patch.algo).toBe(0x08);
-    expect(ratioToString(patch.operators[0])).toBe('03.00');
+  it('is built as a tine pair plus a body pair', () => {
+    expect(patch.algo).toBe(0x07); // [A>B]+[C>D]
+    // The body pair sits at unison, so the note itself is a plain 1:1 pair and
+    // the tine is mixed in alongside rather than stacked on top of it.
+    expect(ratioToString(patch.operators[2])).toBe('01.00');
+    expect(ratioToString(patch.operators[3])).toBe('01.00');
+    expect(patch.operators[3].level).toBeGreaterThan(patch.operators[2].level);
+  });
+
+  it('gives every carrier a whole-number ratio', () => {
+    // A fractional carrier ratio is not an overtone of the note, it is a
+    // separate pitch. Three carriers at 00.50, 01.00 and 01.50 are a 1:2:3
+    // series on the sub-octave -- an organ registration, not a piano.
+    for (const opIndex of [1, 3]) {
+      expect(patch.operators[opIndex].ratioFine, `Op ${'ABCD'[opIndex]} ratioFine`).toBe(0);
+    }
+    expect(patch.operators[0].ratioFine).toBe(0);
     expect(patch.operators[0].feedback).toBe(0x00);
   });
 
@@ -199,18 +282,15 @@ describe('Electric Piano patch', () => {
     expect(patch.envelopes[0].decay).toBeGreaterThan(0x80);
   });
 
-  it('wires the tine transient through MOD 2, which Op A subscribes to', () => {
+  it('rides the whole tine pair on MOD 2, so the strike fades out', () => {
     expect(patch.envelopes[1].dest).toBe(DEST_MOD2);
-    const slot = decodeModSlot(patch.operators[0].modA)!;
-    expect(slot.bus).toBe(2);
-    expect(slot.target).toBe(MOD_TARGET_LEV);
-  });
-
-  it('keeps the fifth-ratio carrier below the root', () => {
-    // Op C at 1.50 sitting level with Op D at 1.00 stops reading as an overtone
-    // and starts reading as an organ.
-    expect(ratioToString(patch.operators[2])).toBe('01.50');
-    expect(patch.operators[2].level).toBeLessThan(patch.operators[3].level);
+    // Both the tine modulator and its carrier subscribe, so the ping loses
+    // brightness and level together instead of ringing on at fixed volume.
+    for (const opIndex of [0, 1]) {
+      const slot = decodeModSlot(patch.operators[opIndex].modA)!;
+      expect(slot.bus, `Op ${'ABCD'[opIndex]} bus`).toBe(2);
+      expect(slot.target, `Op ${'ABCD'[opIndex]} target`).toBe(MOD_TARGET_LEV);
+    }
   });
 });
 
@@ -253,17 +333,32 @@ describe('audio rendering', () => {
 
   it('gives the piano a bright strike over a near-sine body', () => {
     // This is the shape that was missing. With no envelope reaching the tine
-    // modulator the patch sat at its peak brightness forever, which is the
-    // metallic buzz rather than a struck piano.
+    // the patch sat at its peak brightness forever, which is a metallic ring
+    // rather than a struck piano.
     const f0 = noteToFrequency(60);
     const result = render(patchForPreset('Electric Piano', 0), 2.0, 2.0);
 
-    const strike = brightness(result, f0, 4, 0.03);
-    const body = brightness(result, f0, 4, 0.6);
+    // A short window for the strike: the tine only lasts a couple of hundred
+    // milliseconds, and a long one averages it into the sustain.
+    const strike = brightness(result, f0, 4, 0.004, 2048);
+    const body = brightness(result, f0, 4, 0.7);
 
-    expect(strike).toBeGreaterThan(0.25);
-    expect(body).toBeLessThan(0.2);
-    expect(strike).toBeGreaterThan(body * 3);
+    expect(strike, 'the tine should be audible').toBeGreaterThan(0.05);
+    expect(body, 'the body should be close to a sine').toBeLessThan(0.02);
+    expect(strike).toBeGreaterThan(body * 5);
+  });
+
+  it('stays on the harmonic series instead of aliasing into clang', () => {
+    // FM sidebands that cross Nyquist fold back at inharmonic frequencies, and
+    // because that depends on absolute pitch it gets worse the higher you play.
+    // The operators run oversampled specifically so this stays negligible.
+    const patch = patchForPreset('Electric Piano', 1); // the brightest EP preset
+    for (const note of [36, 60, 84]) {
+      const f0 = noteToFrequency(note);
+      const result = render(patch, 1.2, 1.2, note);
+      const off = inharmonicEnergy(result, f0, 0.02);
+      expect(off, `note ${note} inharmonic energy`).toBeLessThan(0.05);
+    }
   });
 
   it('produces sound, then silence, at a sane level for every preset', () => {
@@ -300,7 +395,7 @@ describe('.m8i export', () => {
 
     expect(written.kindStr).toBe('FMSYNTH');
     expect(written.instrParams.algo).toBe(patch.algo);
-    expect(written.instrParams.algoStr).toBe('[A>B]+[A>C]+[A>D]');
+    expect(written.instrParams.algoStr).toBe('[A>B]+[C>D]');
     expect(written.volume).toBe(patch.volume);
 
     expect([

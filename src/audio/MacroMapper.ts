@@ -103,19 +103,22 @@ export class MacroMapper {
   }
 
   private applyElectricPiano(patch: M8Patch) {
-    // Tine material walks the modulator up the harmonic series: 3:1 is the
-    // classic MK1 tine, higher integers get glassier.
-    setRatio(patch, 0, 3 + Math.floor(this.macro('Tine Material') * 4));
+    // Tine material moves the strike up the harmonic series. Integer ratios
+    // only: a fractional tine ratio beats against the body pair and is the
+    // difference between a bell and a clang.
+    setRatio(patch, 0, 7 + Math.floor(this.macro('Tine Material') * 7));
 
-    // Strike force is the tine transient depth plus how open the filter sits.
+    // Strike force is how hard the tine is hit -- depth, ring time, and how
+    // much air the filter lets through.
     const strike = this.macro('Strike Force');
-    patch.envelopes[1].amount = lerpByte(0x50, 0x98, strike);
-    patch.filter.cutoff = lerpByte(0xbc, 0xe8, strike);
+    patch.envelopes[1].amount = lerpByte(0x50, 0x90, strike);
+    patch.envelopes[1].decay = lerpByte(0x38, 0x58, strike);
+    patch.filter.cutoff = lerpByte(0xc4, 0xec, strike);
 
-    // Bark is standing modulation depth and how long the transient rings.
+    // Bark is the body pair's modulation index: the growl a Rhodes gets when
+    // you dig into it, rather than more of the tine.
     const bark = this.macro('Bark');
-    patch.operators[0].level = lerpByte(0x28, 0x70, bark);
-    patch.envelopes[1].decay = lerpByte(0x30, 0x60, bark);
+    patch.operators[2].level = lerpByte(0x20, 0x70, bark);
 
     const tremolo = this.macro('Tremolo Depth');
     patch.lfos[0].amount = lerpByte(0x00, 0x60, tremolo);
@@ -231,26 +234,31 @@ export class MacroMapper {
     switch (anchor) {
       case 'Electric Piano':
         patch.name = 'M8FM EP';
-        patch.algo = 0x08; // [A>B]+[A>C]+[A>D]
-        patch.mods = [0x00, 0x20, 0x00, 0x00];
-        // Op A: the tine. A 3:1 sine modulator hitting all three carriers. Its
-        // standing LEVEL is deliberately low -- almost all of the brightness
-        // comes and goes with the ENV2 strike below, which is what makes a
-        // Rhodes a bright ping over a near-sine body rather than a constant
-        // metallic ring.
-        patch.operators[0] = { shape: OSC_SIN, ratio: 3, ratioFine: 0, level: 0x40, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
-        // Op B: sub-octave body.
-        patch.operators[1] = { shape: OSC_SIN, ratio: 0, ratioFine: 50, level: 0x68, feedback: 0x00, modA: 0x00, modB: 0x00 };
-        // Op C: the fifth. Kept well under the root -- at parity it stops
-        // reading as an overtone and starts reading as an organ.
-        patch.operators[2] = { shape: OSC_SIN, ratio: 1, ratioFine: 50, level: 0x38, feedback: 0x00, modA: 0x00, modB: 0x00 };
-        // Op D: root.
-        patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x90, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        // Two independent 2-operator pairs, which is how every good FM Rhodes
+        // is built: one pair makes the struck tine, the other makes the sustained
+        // body, and they are mixed rather than stacked. The previous version put
+        // three carriers at ratios 00.50, 01.00 and 01.50 -- relative to the
+        // sub-octave that is a 1:2:3 series, i.e. a Hammond drawbar
+        // registration, which is most of where the metallic edge came from.
+        patch.algo = 0x07; // [A>B]+[C>D]
+        patch.mods = [0x00, 0x00, 0x00, 0x00];
+        // Op A: the tine. High ratio, low standing level -- the brightness
+        // arrives with the ENV2 strike and leaves with it.
+        patch.operators[0] = { shape: OSC_SIN, ratio: 11, ratioFine: 0, level: 0x18, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
+        // Op B: the tine's carrier, on the same MOD bus, so the ping fades in
+        // level as well as in brightness and settles to a thin sine that
+        // reinforces the fundamental.
+        patch.operators[1] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x20, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
+        // Op C: the body. A 1:1 modulator at a low index gives a warm spectrum
+        // that rolls off smoothly instead of a fixed set of high partials.
+        patch.operators[2] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x40, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        // Op D: the body's carrier, and the note you actually hear.
+        patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xc0, feedback: 0x00, modA: 0x00, modB: 0x00 };
         patch.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: 0x9a, dest: DEST_VOLUME, retrigger: 0x00 };
-        // The tine transient: a short swell on MOD 2, which Op A subscribes to.
-        patch.envelopes[1] = { amount: 0x70, attack: 0x00, hold: 0x00, decay: 0x40, dest: DEST_MOD2, retrigger: 0x00 };
+        // The strike: a short swell on MOD 2, which the whole tine pair rides.
+        patch.envelopes[1] = { amount: 0x70, attack: 0x00, hold: 0x00, decay: 0x48, dest: DEST_MOD2, retrigger: 0x00 };
         patch.lfos[0] = { amount: 0x30, shape: LFO_TRI, trigger: 0x00, freq: 0xc8, dest: DEST_VOLUME };
-        patch.filter = { type: FILTER_LOWPASS, cutoff: 0xce, res: 0x20 };
+        patch.filter = { type: FILTER_LOWPASS, cutoff: 0xd4, res: 0x10 };
         patch.mixer.cho = 0xa0;
         break;
 

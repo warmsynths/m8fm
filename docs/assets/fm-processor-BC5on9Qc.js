@@ -36,15 +36,74 @@ const RELEASE_SECONDS = 0.006;
 const SILENCE_THRESHOLD = 1e-4;
 const SILENCE_SECONDS = 0.05;
 
+/**
+ * Operators are run at this multiple of the output rate.
+ *
+ * FM generates sidebands far above the highest operator frequency, and any that
+ * land past Nyquist fold back at inharmonic frequencies -- the clangy, metallic
+ * edge that gets worse the higher up the keyboard you play. Rendering at double
+ * rate and filtering before decimation moves the fold-back point out of the
+ * audible band, which is what lets a tine modulator run at a high ratio without
+ * turning to grit.
+ */
+const OVERSAMPLE = 2;
+/**
+ * Chorus delay range. The base delay has to sit well clear of the flanging
+ * region: a short base delay summed with the dry signal comb-filters, which
+ * reads as a metallic ring rather than as movement.
+ */
+const CHORUS_BASE_SECONDS = 0.016;
+const CHORUS_DEPTH_SECONDS = 0.0035;
+const CHORUS_RATE_HZ = 0.7;
+/** Decimation filter cutoff, in Hz. Just below the output rate's Nyquist. */
+const DECIMATION_CUTOFF_HZ = 19500;
+const DECIMATION_TAPS = 23;
+
 const TWO_PI = Math.PI * 2;
 
 function clamp(v, lo, hi) {
   return v < lo ? lo : v > hi ? hi : v;
 }
 
+/** Windowed-sinc lowpass, normalised to unity gain at DC. */
+function designLowpass(taps, cutoffHz, sampleRate) {
+  const h = new Float64Array(taps);
+  const fc = cutoffHz / sampleRate;
+  const mid = (taps - 1) / 2;
+  let sum = 0;
+  for (let i = 0; i < taps; i++) {
+    const n = i - mid;
+    const sinc = n === 0 ? 2 * fc : Math.sin(TWO_PI * fc * n) / (Math.PI * n);
+    // Blackman window, for a stopband deep enough that nothing audible survives.
+    const w = 0.42 - 0.5 * Math.cos((TWO_PI * i) / (taps - 1)) + 0.08 * Math.cos((4 * Math.PI * i) / (taps - 1));
+    h[i] = sinc * w;
+    sum += h[i];
+  }
+  for (let i = 0; i < taps; i++) h[i] /= sum;
+  return h;
+}
+
 /** Wraps a phase (in cycles) into [0, 1). */
 function wrap(p) {
   return p - Math.floor(p);
+}
+
+/**
+ * Level above which the output starts to saturate.
+ *
+ * A plain tanh on the whole range distorts everything a little, and a chord --
+ * which sums several voices -- enough to intermodulate audibly. Staying exactly
+ * linear up to the knee keeps single notes and moderate chords clean and only
+ * rounds off the peaks that would otherwise clip.
+ */
+const CLIP_KNEE = 0.7;
+
+function softClip(x) {
+  const magnitude = Math.abs(x);
+  if (magnitude <= CLIP_KNEE) return x;
+  const over = (magnitude - CLIP_KNEE) / (1 - CLIP_KNEE);
+  const shaped = CLIP_KNEE + (1 - CLIP_KNEE) * Math.tanh(over);
+  return x < 0 ? -shaped : shaped;
 }
 
 class NoiseState {
@@ -253,6 +312,8 @@ class Voice {
 class M8FmRenderer {
   constructor(sampleRate) {
     this.sampleRate = sampleRate;
+    /** Rate the operators actually run at. */
+    this.opRate = sampleRate * OVERSAMPLE;
     this.spec = null;
     this.voices = Array.from({ length: MAX_VOICES }, () => new Voice());
     this.freeLfoPhases = new Float64Array(2);
@@ -260,11 +321,32 @@ class M8FmRenderer {
     this.masterGain = 0.5;
     this.buses = new Float64Array(4);
 
+    this.decimation = designLowpass(DECIMATION_TAPS, DECIMATION_CUTOFF_HZ, this.opRate);
+    this.decimationBuf = new Float64Array(DECIMATION_TAPS);
+    this.decimationPos = 0;
+
     this.chorusSize = Math.ceil(0.05 * sampleRate);
     this.chorusL = new Float32Array(this.chorusSize);
     this.chorusR = new Float32Array(this.chorusSize);
     this.chorusWrite = 0;
     this.chorusPhase = 0;
+  }
+
+  /** Pushes one oversampled sample into the decimation filter's delay line. */
+  pushSubSample(value) {
+    this.decimationBuf[this.decimationPos] = value;
+    this.decimationPos = (this.decimationPos + 1) % DECIMATION_TAPS;
+  }
+
+  /** Evaluates the decimation filter. Called once per output sample. */
+  readDecimated() {
+    let sum = 0;
+    let index = this.decimationPos;
+    for (let i = 0; i < DECIMATION_TAPS; i++) {
+      sum += this.decimation[i] * this.decimationBuf[index];
+      index = index + 1 === DECIMATION_TAPS ? 0 : index + 1;
+    }
+    return sum;
   }
 
   handleMessage(msg) {
@@ -386,7 +468,7 @@ class M8FmRenderer {
   }
 
   renderVoice(spec, voice) {
-    const sampleRate = this.sampleRate;
+    const sampleRate = this.opRate;
     const dt = 1 / sampleRate;
     const buses = this.buses;
 
@@ -502,50 +584,60 @@ class M8FmRenderer {
     if (!spec) return;
 
     const sampleRate = this.sampleRate;
-    const dt = 1 / sampleRate;
-    const silenceLimit = sampleRate * SILENCE_SECONDS;
+    const opDt = 1 / this.opRate;
+    const outDt = 1 / sampleRate;
+    const silenceLimit = this.opRate * SILENCE_SECONDS;
 
     for (let i = 0; i < frames; i++) {
-      let dry = 0;
-      let panAccum = 0;
-      let voiceCount = 0;
+      let pan = 0;
 
-      for (let v = 0; v < this.voices.length; v++) {
-        const voice = this.voices[v];
-        if (!voice.active) continue;
+      // Operators run at the oversampled rate; everything downstream of the
+      // decimation filter runs at the output rate.
+      for (let sub = 0; sub < OVERSAMPLE; sub++) {
+        let dry = 0;
+        let panAccum = 0;
+        let voiceCount = 0;
 
-        const sample = this.renderVoice(spec, voice);
-        dry += sample;
-        panAccum += spec.pan + this.destAmount(spec, voice, DEST_PAN);
-        voiceCount += 1;
+        for (let v = 0; v < this.voices.length; v++) {
+          const voice = this.voices[v];
+          if (!voice.active) continue;
 
-        if (Math.abs(sample) < SILENCE_THRESHOLD) {
-          voice.silentSamples += 1;
-        } else {
-          voice.silentSamples = 0;
-        }
+          const sample = this.renderVoice(spec, voice);
+          dry += sample;
+          panAccum += spec.pan + this.destAmount(spec, voice, DEST_PAN);
+          voiceCount += 1;
 
-        // Reclaim the voice as soon as it can no longer make sound. Without
-        // this, a patch whose volume envelope has run out would keep rendering
-        // forever -- the "one preview and it never stops" bug.
-        if (voice.silentSamples > silenceLimit && (!voice.gate || this.volumeEnvelopeFinished(spec, voice))) {
-          voice.kill();
+          if (Math.abs(sample) < SILENCE_THRESHOLD) {
+            voice.silentSamples += 1;
+          } else {
+            voice.silentSamples = 0;
+          }
+
+          // Reclaim the voice as soon as it can no longer make sound. Without
+          // this, a patch whose volume envelope has run out would keep
+          // rendering forever -- the "one preview and it never stops" bug.
+          if (voice.silentSamples > silenceLimit && (!voice.gate || this.volumeEnvelopeFinished(spec, voice))) {
+            voice.kill();
+          }
+
+          for (let l = 0; l < spec.lfos.length; l++) {
+            if (spec.lfos[l].trigger !== 0) {
+              voice.lfoPhases[l] = wrap(voice.lfoPhases[l] + spec.lfos[l].freq * opDt);
+            }
+          }
         }
 
         for (let l = 0; l < spec.lfos.length; l++) {
-          if (spec.lfos[l].trigger !== 0) {
-            voice.lfoPhases[l] = wrap(voice.lfoPhases[l] + spec.lfos[l].freq * dt);
+          if (spec.lfos[l].trigger === 0) {
+            this.freeLfoPhases[l] = wrap(this.freeLfoPhases[l] + spec.lfos[l].freq * opDt);
           }
         }
+
+        this.pushSubSample(dry);
+        pan = voiceCount > 0 ? clamp(panAccum / voiceCount, -1, 1) : 0;
       }
 
-      for (let l = 0; l < spec.lfos.length; l++) {
-        if (spec.lfos[l].trigger === 0) {
-          this.freeLfoPhases[l] = wrap(this.freeLfoPhases[l] + spec.lfos[l].freq * dt);
-        }
-      }
-
-      const pan = voiceCount > 0 ? clamp(panAccum / voiceCount, -1, 1) : 0;
+      const dry = this.readDecimated();
       const panL = Math.cos(((pan + 1) * Math.PI) / 4);
       const panR = Math.sin(((pan + 1) * Math.PI) / 4);
 
@@ -553,22 +645,23 @@ class M8FmRenderer {
       let outR = dry * panR;
 
       if (spec.chorus > 0) {
-        this.chorusPhase = wrap(this.chorusPhase + 0.6 * dt);
-        const depthSamples = (0.002 + 0.004 * spec.chorus) * sampleRate;
-        const baseSamples = 0.008 * sampleRate;
+        this.chorusPhase = wrap(this.chorusPhase + CHORUS_RATE_HZ * outDt);
+        const depthSamples = CHORUS_DEPTH_SECONDS * spec.chorus * sampleRate;
+        const baseSamples = CHORUS_BASE_SECONDS * sampleRate;
+        // Quadrature taps, so the two channels drift against each other and the
+        // chorus widens instead of just thickening.
         const modL = baseSamples + depthSamples * Math.sin(TWO_PI * this.chorusPhase);
         const modR = baseSamples + depthSamples * Math.sin(TWO_PI * this.chorusPhase + Math.PI / 2);
-        outL += spec.chorus * 0.6 * this.readChorus(this.chorusL, modL);
-        outR += spec.chorus * 0.6 * this.readChorus(this.chorusR, modR);
+        outL += spec.chorus * 0.5 * this.readChorus(this.chorusL, modL);
+        outR += spec.chorus * 0.5 * this.readChorus(this.chorusR, modR);
         this.chorusL[this.chorusWrite] = dry * panL;
         this.chorusR[this.chorusWrite] = dry * panR;
         this.chorusWrite = (this.chorusWrite + 1) % this.chorusSize;
       }
 
       const gain = this.masterGain * spec.dry;
-      // Soft clip, so an aggressive patch saturates instead of tearing.
-      left[i] = Math.tanh(outL * gain);
-      right[i] = Math.tanh(outR * gain);
+      left[i] = softClip(outL * gain);
+      right[i] = softClip(outR * gain);
     }
   }
 

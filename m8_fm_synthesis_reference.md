@@ -66,14 +66,42 @@ The M8 uses a 2-level modulation matrix:
 
 ## 5. Sound Design Recipes
 
-### A. Pure 2-Op Silky Electric Piano (Rhodes / Wurli):
+### A. Electric Piano (Rhodes / Wurli):
+
+Two independent 2-op pairs: one makes the struck tine, the other the sustained
+body, and `07` mixes them. Keeping them separate is what makes this sound like a
+piano — stacking extra carriers on one modulator gives an organ instead (see the
+warning below).
+
 - **Algorithm**: `07 [A>B] + [C>D]`
-- **Op A (Modulator)**: `SIN`, `RATIO 01.00`, `LEV 0C`–`14`, `FB 00`, `MOD -----`
-- **Op B (Carrier 1)**: `SIN`, `RATIO 01.00`, `LEV FF`, `FB 00`, `MOD 1▸LEV` (Volume Envelope)
-- **Op C (Modulator 2)**: `SIN`, `RATIO 01.00`, `LEV 00`, `FB 00`, `MOD -----` *(Silenced)*
-- **Op D (Carrier 2)**: `SIN`, `RATIO 01.00`, `LEV 00`, `FB 00`, `MOD -----` *(Silenced)*
-- **Env 1**: `DEST: MOD 1`, `ATTACK: 00`, `HOLD: 00`, `DECAY: 60`
-- **LFO 1**: `DEST: VOLUME`, `TYPE: TRI`, `FREQ: 35`, `AMT: 40` (Master Tremolo)
+- **Op A (Tine Modulator)**: `SIN`, `RATIO 07.00`–`14.00`, `LEV 18`, `FB 00`, `MOD 2▸LEV`
+- **Op B (Tine Carrier)**: `SIN`, `RATIO 01.00`, `LEV 20`, `FB 00`, `MOD 2▸LEV`
+- **Op C (Body Modulator)**: `SIN`, `RATIO 01.00`, `LEV 40`, `FB 00`, `MOD -----`
+- **Op D (Body Carrier)**: `SIN`, `RATIO 01.00`, `LEV C0`, `FB 00`, `MOD -----`
+- **MOD 2**: `00` (the strike envelope supplies the whole bus)
+- **Env 1**: `DEST: VOLUME`, `AMT: FF`, `ATTACK: 00`, `HOLD: 00`, `DECAY: 9A` (note decay)
+- **Env 2**: `DEST: MOD 2`, `AMT: 70`, `ATTACK: 00`, `HOLD: 00`, `DECAY: 48` (the strike)
+- **LFO 1**: `DEST: VOLUME`, `TYPE: TRI`, `FREQ: C8`, `AMT: 30` (Master Tremolo)
+- **Filter**: `LOWPASS`, `CUT D4`, `RES 10`. **Mixer**: `CHO A0`
+
+Both tine operators sit on `MOD 2`, so the strike loses brightness *and* level
+together and settles into a thin sine that reinforces the fundamental. Put only
+the modulator on the bus and the tine carrier rings on at fixed volume forever.
+
+**Tuning notes**:
+- Raising `RATIO A` moves the strike up the harmonic series: `07.00` is woody,
+  `14.00` is glassy. Keep it a whole number — a fractional tine ratio beats
+  against the body pair, which is the difference between a bell and a clang.
+- `LEV C` is the body's modulation index, and it is the Rhodes "bark" when you
+  dig in. Push it for a Wurli, back it off for a silky MK1.
+- Reach for `LEV C`, not `LEV A`, when the patch needs more character. More tine
+  just makes it brighter.
+
+> **Carrier ratios are pitches, not overtones.** Carriers at `00.50`, `01.00` and
+> `01.50` are not a piano with overtones — relative to the sub-octave they are a
+> 1:2:3 series, i.e. the 16′ + 8′ + 5⅓′ registration of a Hammond organ, and they
+> will sound like one. Give carriers whole-number ratios unless you specifically
+> want a stacked interval.
 
 ### B. FM Punch Kick Drum:
 - **Algorithm**: `07 [A>B] + [C>D]`

@@ -216,7 +216,7 @@ export function ratioToMultiplier(op: M8Operator): number {
 
 /** Splits a pitch multiplier back into the M8's integer + hundredths pair. */
 export function multiplierToRatio(mult: number): { ratio: number; ratioFine: number } {
-  const clamped = Math.max(0, Math.min(15.99, mult));
+  const clamped = Math.max(0, Math.min(99.99, mult));
   const ratio = Math.floor(clamped);
   return { ratio, ratioFine: Math.round((clamped - ratio) * 100) };
 }
