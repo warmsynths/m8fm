@@ -28,6 +28,24 @@ Electric Piano against it field by field:
 M8FM_REFERENCE_M8I="/path/to/E PIANO07.m8i" npm test
 ```
 
+That checks the *parameters* match. Matching the *sound* is a separate problem:
+Dirtywave does not publish how a raw `00`-`FF` value becomes seconds, hertz or
+modulation depth, so every one of those curves in `src/audio/M8Patch.ts` is
+currently an educated guess.
+
+`calibration/` holds instruments for measuring them off real hardware. Each one
+isolates a single unknown — a musical patch is affected by all of them at once
+and so cannot settle any of them. Load one, sweep the single parameter it names,
+record the line out, then:
+
+```
+node tools/analyze-recording.mjs calibration/CAL1-ENV.wav --expect=9
+```
+
+It splits the recording into notes and reports decay times, decay curve shape,
+pitch and harmonic series per note — which is what the curves get fitted to. See
+`calibration/README.md`.
+
 ## Technology Stack
 
 The application is built using the following technologies:
