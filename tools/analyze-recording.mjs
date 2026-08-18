@@ -1,14 +1,20 @@
 #!/usr/bin/env node
 /**
- * Measures a recording of an M8 calibration instrument.
+ * Measures a recording of the M8 calibration song.
  *
- * Splits the WAV into individual notes on the silence between them, then for
- * each note reports the amplitude envelope, the decay times, the detected
- * fundamental and the harmonic series. That is everything needed to fit the
- * conversion curves in src/audio/M8Patch.ts to real hardware.
+ * Cuts the WAV into measurements and reports, for each, the level, the pitch,
+ * the decay times, the fitted decay curve and the harmonic series -- everything
+ * needed to fit the conversion curves in src/audio/M8Patch.ts to real hardware.
  *
- *   node tools/analyze-recording.mjs calibration/CAL1-ENV.wav
- *   node tools/analyze-recording.mjs recording.wav --json > measured.json
+ * When calibration/manifest.json is present the recording is cut by it, so every
+ * row is labelled with the parameter and value it measures, and a measurement
+ * that is silent or that pulses cannot shift the labels of the ones after it.
+ * Only the recording's offset is found from the audio. Without a manifest it
+ * falls back to segmenting at note onsets.
+ *
+ *   node tools/analyze-recording.mjs take.wav
+ *   node tools/analyze-recording.mjs take.wav --json > measured.json
+ *   node tools/analyze-recording.mjs take.wav --manifest=path/to/manifest.json
  */
 
 import fs from 'node:fs';
@@ -162,7 +168,16 @@ export function envelope(samples, sampleRate, windowSeconds = 0.005) {
   return { values: out, stepSeconds: window / sampleRate };
 }
 
-/** Splits a recording into notes on the silence between them. */
+/**
+ * Splits a recording into notes at their onsets.
+ *
+ * Onsets rather than silences, because requiring a clean gap between every note
+ * puts the burden on whoever is recording. A note is taken to start either when
+ * the signal rises out of silence or when its energy jumps sharply, so notes
+ * that run into each other still separate, and each segment simply runs until
+ * the next one begins. Any decay tail is therefore kept with the note it
+ * belongs to.
+ */
 export function splitNotes(samples, sampleRate, options = {}) {
   const { values, stepSeconds } = envelope(samples, sampleRate, 0.005);
   let peak = 0;
@@ -171,41 +186,41 @@ export function splitNotes(samples, sampleRate, options = {}) {
 
   const openAt = peak * (options.openFraction ?? 0.04);
   const closeAt = peak * (options.closeFraction ?? 0.012);
-  const minGapSteps = Math.round((options.minGapSeconds ?? 0.15) / stepSeconds);
-  // A short percussive decay is only a few tens of milliseconds long, and it is
-  // exactly the kind of note these recordings are meant to measure, so the
-  // minimum has to stay well under that.
-  const minNoteSteps = Math.round((options.minNoteSeconds ?? 0.01) / stepSeconds);
+  // How far the energy must jump, over ~15 ms, to count as a new note landing on
+  // top of a previous one that has not finished.
+  const jumpRatio = options.jumpRatio ?? 4;
+  const lookBack = Math.max(1, Math.round(0.015 / stepSeconds));
+  const minSpacingSteps = Math.round((options.minSpacingSeconds ?? 0.05) / stepSeconds);
 
-  const notes = [];
-  let start = -1;
-  let quiet = 0;
+  const onsets = [];
+  let armed = true;
+  let lastOnset = -Infinity;
 
   for (let i = 0; i < values.length; i++) {
-    if (start < 0) {
-      if (values[i] > openAt) {
-        start = i;
-        quiet = 0;
+    if (values[i] < closeAt) armed = true;
+
+    if (values[i] > openAt && i - lastOnset >= minSpacingSteps) {
+      const before = values[Math.max(0, i - lookBack)];
+      const jumped = values[i] > Math.max(before * jumpRatio, openAt);
+      if (armed || jumped) {
+        onsets.push(i);
+        lastOnset = i;
+        armed = false;
       }
-    } else if (values[i] < closeAt) {
-      quiet += 1;
-      if (quiet >= minGapSteps) {
-        const end = i - quiet;
-        if (end - start >= minNoteSteps) notes.push([start, end]);
-        start = -1;
-        quiet = 0;
-      }
-    } else {
-      quiet = 0;
     }
   }
-  if (start >= 0 && values.length - start >= minNoteSteps) notes.push([start, values.length]);
 
-  return notes.map(([from, to]) => ({
-    startSeconds: from * stepSeconds,
-    endSeconds: to * stepSeconds,
-    samples: samples.slice(Math.round(from * stepSeconds * sampleRate), Math.round(to * stepSeconds * sampleRate))
-  }));
+  return onsets.map((from, i) => {
+    const to = i + 1 < onsets.length ? onsets[i + 1] : values.length;
+    return {
+      startSeconds: from * stepSeconds,
+      endSeconds: to * stepSeconds,
+      samples: samples.slice(
+        Math.round(from * stepSeconds * sampleRate),
+        Math.round(to * stepSeconds * sampleRate)
+      )
+    };
+  });
 }
 
 /**
@@ -379,13 +394,65 @@ export function decayShape(samples, sampleRate, f0) {
 
 /* ------------------------------------------------------------------ report */
 
+/** How far a note may sit from where the manifest says it is and still be it. */
+const SNAP_TOLERANCE_SECONDS = 0.35;
+
+/**
+ * Cuts the recording into the slots the manifest describes.
+ *
+ * The calibration song has fixed timing, so where every measurement sits is
+ * already known -- only the offset of the recording is not. Slicing by the
+ * manifest rather than by detected onsets means a measurement that happens to be
+ * silent (level 00 really is silence) or one that pulses (a tremolo looks like a
+ * run of onsets) cannot shift the labels of everything after it.
+ *
+ * Each slot is still snapped to a nearby onset when there is one, so a recording
+ * that drifts against the M8's clock stays aligned.
+ */
+function sliceByManifest(samples, sampleRate, manifest, onsets) {
+  const origin = onsets.length > 0 ? onsets[0].startSeconds : 0;
+  const totalSeconds = samples.length / sampleRate;
+
+  return manifest.notes.map((entry) => {
+    const nominal = origin + (entry.startSeconds ?? 0);
+    const slot = entry.slotSeconds ?? 0;
+
+    let snapped = null;
+    let closest = Infinity;
+    for (const onset of onsets) {
+      const distance = Math.abs(onset.startSeconds - nominal);
+      if (distance < closest) {
+        closest = distance;
+        snapped = onset.startSeconds;
+      }
+    }
+
+    const start = closest <= SNAP_TOLERANCE_SECONDS ? snapped : nominal;
+    const end = slot > 0 ? start + slot : totalSeconds;
+
+    return {
+      startSeconds: start,
+      driftSeconds: closest <= SNAP_TOLERANCE_SECONDS ? +(snapped - nominal).toFixed(3) : null,
+      truncated: end > totalSeconds + 0.01,
+      samples: samples.slice(
+        Math.max(0, Math.round(start * sampleRate)),
+        Math.min(samples.length, Math.round(end * sampleRate))
+      )
+    };
+  });
+}
+
 function analyze(filePath, options = {}) {
   const { samples, sampleRate, channels, bitsPerSample } = readWav(fs.readFileSync(filePath));
-  const notes = splitNotes(samples, sampleRate);
+  const manifest = options.manifest ?? null;
+  const onsets = splitNotes(samples, sampleRate);
+  const notes = manifest ? sliceByManifest(samples, sampleRate, manifest, onsets) : onsets;
 
   return {
     file: filePath,
-    expected: options.expected ?? null,
+    slicedByManifest: !!manifest,
+    onsetsDetected: onsets.length,
+    expected: manifest ? manifest.notes.length : options.expected ?? null,
     sampleRate,
     channels,
     bitsPerSample,
@@ -393,21 +460,87 @@ function analyze(filePath, options = {}) {
     notes: notes.map((note, index) => {
       let peak = 0;
       for (const v of note.samples) peak = Math.max(peak, Math.abs(v));
+      const lengthSeconds = note.samples.length / sampleRate;
+      const expected = manifest?.notes[index] ?? null;
+
+      const base = {
+        index: index + 1,
+        test: expected?.test ?? null,
+        parameter: expected?.parameter ?? null,
+        valueHex: expected?.valueHex ?? null,
+        label: expected?.label ?? null,
+        startSeconds: +note.startSeconds.toFixed(3),
+        lengthSeconds: +lengthSeconds.toFixed(3),
+        driftSeconds: note.driftSeconds ?? null,
+        truncated: !!note.truncated,
+        peak: +peak.toFixed(4),
+        peakDb: +(20 * Math.log10(Math.max(peak, 1e-9))).toFixed(1)
+      };
+
+      // A measurement can legitimately be silent -- LEVEL 00 is supposed to make
+      // no sound. Reporting a pitch and a decay for silence would be noise
+      // dressed up as data.
+      if (peak < 1e-4 || lengthSeconds < 0.01) {
+        return {
+          ...base,
+          silent: true,
+          fundamentalHz: null,
+          decayToMinus20dB: null,
+          decayToMinus30dB: null,
+          decayTotalSeconds: null,
+          decayExponent: null,
+          harmonicsDb: []
+        };
+      }
+
       const f0 = detectFundamental(note.samples, sampleRate);
+      // Measure the spectrum well inside the note, past the attack, but fall
+      // back towards the start for anything short.
+      const spectrumAt = lengthSeconds > 1.2 ? 0.35 : Math.min(0.02, lengthSeconds / 4);
+      const harmonicsDb = harmonics(note.samples, sampleRate, f0, 24, spectrumAt).map((v) => +v.toFixed(1));
+
+      // How long the note actually sounds for, as opposed to how long its slot
+      // is, and whether it holds its level or decays away. A sustained tone has
+      // no decay to report, and printing one would be noise dressed as data.
+      const { values, stepSeconds } = envelope(note.samples, sampleRate, envelopeWindowFor(f0));
+      let envelopePeak = 0;
+      for (const v of values) if (v > envelopePeak) envelopePeak = v;
+      let lastSounding = 0;
+      for (let i = 0; i < values.length; i++) if (values[i] > envelopePeak * 0.01) lastSounding = i;
+      const soundingSeconds = lastSounding * stepSeconds;
+      const threeQuarters = values[Math.floor(lastSounding * 0.75)] ?? 0;
+      const sustained = threeQuarters > envelopePeak * 0.5;
+      const tooShort = soundingSeconds < 0.05;
+
+      if (sustained || tooShort) {
+        return {
+          ...base,
+          silent: false,
+          sustained,
+          tooShort,
+          soundingSeconds: +soundingSeconds.toFixed(3),
+          fundamentalHz: tooShort ? null : +f0.toFixed(2),
+          decayToMinus20dB: null,
+          decayToMinus30dB: null,
+          decayTotalSeconds: null,
+          decayExponent: null,
+          harmonicsDb: tooShort ? [] : harmonicsDb
+        };
+      }
+
       const shape = decayShape(note.samples, sampleRate, f0);
       return {
-        index: index + 1,
-        startSeconds: +note.startSeconds.toFixed(3),
-        lengthSeconds: +((note.samples.length / sampleRate)).toFixed(3),
-        peak: +peak.toFixed(4),
+        ...base,
+        silent: false,
+        sustained: false,
+        tooShort: false,
+        soundingSeconds: +soundingSeconds.toFixed(3),
         fundamentalHz: +f0.toFixed(2),
         decayToMinus20dB: decayTo(note.samples, sampleRate, 20, f0),
-        // -30 dB rather than -40: the note splitter cuts the tail at about
-        // -38 dB, so a deeper measurement would never resolve.
         decayToMinus30dB: decayTo(note.samples, sampleRate, 30, f0),
         decayTotalSeconds: shape ? +shape.totalSeconds.toFixed(3) : null,
         decayExponent: shape && shape.exponent !== null ? +shape.exponent.toFixed(2) : null,
-        harmonicsDb: harmonics(note.samples, sampleRate, f0).map((v) => +v.toFixed(1))
+        harmonicsDb
       };
     })
   };
@@ -417,25 +550,80 @@ function report(result) {
   const lines = [];
   lines.push(`${result.file}`);
   lines.push(`  ${result.sampleRate} Hz, ${result.channels} ch, ${result.bitsPerSample}-bit, ${result.durationSeconds}s`);
-  lines.push(`  ${result.notes.length} notes detected`);
-  if (result.expected && result.expected !== result.notes.length) {
-    lines.push(`  !! expected ${result.expected}. A note may have been too short or too quiet to`);
-    lines.push('     separate, or two ran together. Check the gaps before trusting the rows.');
+  if (result.slicedByManifest) {
+    lines.push(`  ${result.notes.length} measurements, sliced by the manifest`);
+  } else {
+    lines.push(`  ${result.notes.length} notes detected`);
+    if (result.expected && result.expected !== result.notes.length) {
+      lines.push(`  !! expected ${result.expected}. Without a manifest the rows are matched in`);
+      lines.push('     order, so a missing or spurious note mislabels everything after it.');
+    }
   }
   lines.push('');
 
   if (result.notes.length === 0) {
-    lines.push('  No notes found. If the gaps between notes are shorter than ~0.15s,');
-    lines.push('  or the recording never drops near silence, the splitter cannot see them.');
+    lines.push('  No notes found. Either the recording is silent, or its level is so low');
+    lines.push('  that nothing rose above the onset threshold.');
     return lines.join('\n');
   }
 
-  lines.push('  #   start    len    peak      f0      -20dB    -30dB   decay   shape');
+  const sounded = result.notes.filter((n) => !n.silent);
+  if (sounded.length === 0) {
+    lines.push('  Every slot is silent. The recording probably does not contain the song,');
+    lines.push('  or its level is far too low.');
+    return lines.join('\n');
+  }
+
+  const clipped = result.notes.filter((n) => n.peak >= 0.99);
+  if (clipped.length > 0) {
+    lines.push(`  !! ${clipped.length} measurement(s) at full scale -- the recording is probably`);
+    lines.push('     clipped. Drop the level and record again; a clipped tone measures nothing.');
+    lines.push('');
+  }
+
+  const truncated = result.notes.filter((n) => n.truncated);
+  if (truncated.length > 0) {
+    lines.push(`  !! the recording ends before ${truncated.length} measurement(s) do. It may have`);
+    lines.push('     been stopped early, or started after the song had begun.');
+    lines.push('');
+  }
+
+  const drifts = result.notes.map((n) => n.driftSeconds).filter((d) => d !== null);
+  if (drifts.length > 0) {
+    const worst = drifts.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a), 0);
+    if (Math.abs(worst) > 0.2) {
+      lines.push(`  !! measurements drift up to ${worst.toFixed(2)}s from where the manifest puts`);
+      lines.push('     them. Each was snapped to the nearest onset, but check the alignment.');
+      lines.push('');
+    }
+  }
+
+  const labelled = result.notes.some((n) => n.label);
+  const labelWidth = labelled
+    ? Math.max(...result.notes.map((n) => (n.label ? n.label.length : 0)), 5)
+    : 0;
+
+  const header = labelled ? `  #  ${'measurement'.padEnd(labelWidth)} ` : '  #  ';
+  lines.push(`${header} start   peak    f0        -20dB    -30dB   decay   shape`);
+
   for (const note of result.notes) {
     const fmt = (v, width, digits = 3) => (v === null ? '-'.padStart(width) : v.toFixed(digits).padStart(width));
+    const label = labelled ? `${(note.label ?? '?').padEnd(labelWidth)} ` : '';
+    const row = `  ${String(note.index).padStart(2)} ${label} ${fmt(note.startSeconds, 6, 1)}s`;
+    if (note.silent) {
+      lines.push(`${row}       -        -    (silent)`);
+      continue;
+    }
+    if (note.tooShort) {
+      lines.push(`${row} ${fmt(note.peak, 6, 3)}        -    (too short to measure)`);
+      continue;
+    }
+    if (note.sustained) {
+      lines.push(`${row} ${fmt(note.peak, 6, 3)} ${fmt(note.fundamentalHz, 8, 2)}Hz    (steady tone)`);
+      continue;
+    }
     lines.push(
-      `  ${String(note.index).padStart(2)}  ${fmt(note.startSeconds, 6, 2)}s ${fmt(note.lengthSeconds, 6, 2)}s`
-      + ` ${fmt(note.peak, 7, 4)}  ${fmt(note.fundamentalHz, 8, 2)}Hz`
+      `${row} ${fmt(note.peak, 6, 3)} ${fmt(note.fundamentalHz, 8, 2)}Hz`
       + ` ${fmt(note.decayToMinus20dB, 7)}s ${fmt(note.decayToMinus30dB, 7)}s`
       + ` ${fmt(note.decayTotalSeconds, 6, 2)}s ${fmt(note.decayExponent, 6, 2)}`
     );
@@ -444,7 +632,9 @@ function report(result) {
   lines.push('');
   lines.push('  Harmonic series, dB relative to the loudest partial (1..16):');
   for (const note of result.notes) {
-    lines.push(`  ${String(note.index).padStart(2)}  ${note.harmonicsDb.slice(0, 16).map((v) => String(Math.round(v)).padStart(5)).join('')}`);
+    if (note.silent || note.tooShort) continue;
+    const label = labelled ? ` ${(note.label ?? '?').padEnd(labelWidth)}` : '';
+    lines.push(`  ${String(note.index).padStart(2)}${label}  ${note.harmonicsDb.slice(0, 16).map((v) => String(Math.round(v)).padStart(5)).join('')}`);
   }
 
   return lines.join('\n');
@@ -463,7 +653,27 @@ if (invokedDirectly) {
 
   const expectFlag = process.argv.find((a) => a.startsWith('--expect='));
   const expected = expectFlag ? Number(expectFlag.split('=')[1]) : null;
-  const results = files.map((file) => analyze(file, { expected }));
+
+  // Default to the manifest that ships beside the calibration song, so a plain
+  // `analyze-recording.mjs take.wav` already labels every row.
+  const manifestFlag = process.argv.find((a) => a.startsWith('--manifest='));
+  const manifestPath = manifestFlag
+    ? manifestFlag.split('=').slice(1).join('=')
+    : path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'calibration', 'manifest.json');
+
+  let manifest = null;
+  if (fs.existsSync(manifestPath)) {
+    try {
+      manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    } catch (err) {
+      console.error(`could not read manifest ${manifestPath}: ${err.message}`);
+    }
+  } else if (manifestFlag) {
+    console.error(`manifest not found: ${manifestPath}`);
+    process.exit(1);
+  }
+
+  const results = files.map((file) => analyze(file, { expected, manifest }));
   console.log(asJson ? JSON.stringify(results, null, 2) : results.map(report).join('\n\n'));
 }
 

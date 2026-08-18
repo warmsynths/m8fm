@@ -33,17 +33,21 @@ Dirtywave does not publish how a raw `00`-`FF` value becomes seconds, hertz or
 modulation depth, so every one of those curves in `src/audio/M8Patch.ts` is
 currently an educated guess.
 
-`calibration/` holds instruments for measuring them off real hardware. Each one
+`calibration/` holds the means to measure them off real hardware. Each test
 isolates a single unknown — a musical patch is affected by all of them at once
-and so cannot settle any of them. Load one, sweep the single parameter it names,
-record the line out, then:
+and so cannot settle any of them.
+
+`M8FM-CALIBRATION.m8s` plays the whole sweep by itself: every measurement point
+is its own instrument, so nothing needs adjusting while it runs. Load it, record
+the line out, press play, and about eight minutes later:
 
 ```
-node tools/analyze-recording.mjs calibration/CAL1-ENV.wav --expect=9
+node tools/analyze-recording.mjs your-take.wav
 ```
 
-It splits the recording into notes and reports decay times, decay curve shape,
-pitch and harmonic series per note — which is what the curves get fitted to. See
+It picks up `manifest.json`, cuts the recording into the measurements the song
+describes, and labels each with the parameter and value it belongs to, reporting
+level, pitch, decay times, fitted decay curve and harmonic series. See
 `calibration/README.md`.
 
 ## Technology Stack

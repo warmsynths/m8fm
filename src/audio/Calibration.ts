@@ -7,6 +7,7 @@ import {
   MOD_TARGET_LEV,
   OSC_SAW,
   OSC_SIN,
+  clonePatch,
   createDefaultPatch,
   encodeModSlot,
   hex
@@ -21,34 +22,41 @@ import type { M8Patch } from './M8Patch';
  * recording of a musical patch cannot settle them, because it is affected by all
  * of them at once and wrong curves can cancel each other out.
  *
- * These patches each isolate exactly one unknown. They are deliberately as dumb
- * as possible: a single sine operator wherever the test does not need more, no
- * envelopes unless the envelope is the thing being measured, no filter unless
- * the filter is the thing being measured, and no send effects at all. Play one,
- * step the one parameter named in `sweep`, and the recording determines that
- * curve directly.
+ * Each test here isolates exactly one unknown. The patches are deliberately as
+ * dumb as possible: a single sine operator wherever the test does not need more,
+ * no envelope unless the envelope is the thing being measured, no filter unless
+ * the filter is being measured, and no send effects at all.
+ *
+ * `apply` stamps one sweep value into a copy of the base patch, which is what
+ * lets the whole sweep be baked into a song as one instrument per measurement
+ * point -- so recording it is a matter of pressing play, not of turning a knob
+ * between every note.
  */
-export interface CalibrationPatch {
-  /** Filename stem, also the instrument name shown on the device. */
+export interface CalibrationTest {
+  /** Filename stem and manifest key. */
   id: string;
-  /** What this recording pins down. */
+  /** What this measurement pins down. */
   measures: string;
-  /** The single parameter to step through, as it is labelled on the device. */
-  sweep: string;
+  /** The parameter being stepped, as it is labelled on the device. */
+  parameter: string;
   /** Values to step it through. */
   values: number[];
-  /** Why this one matters, and what it fixes in the code. */
+  /** Why it matters, and what it fixes in the code. */
   fixes: string;
+  /** How many 16-step phrases each measurement needs. */
+  phrases: number;
+  /** The starting point every sweep value is stamped into. */
   patch: M8Patch;
+  apply: (patch: M8Patch, value: number) => void;
 }
 
 /**
- * A patch that does as little as possible: one sine carrier at unity ratio,
- * full instrument volume, no envelopes, no filter, no effects. A note sounds at
- * a steady level for as long as it is held, which is what makes the spectrum
- * readable.
+ * A patch that does as little as possible: one sine carrier at unity ratio, full
+ * instrument volume, no envelopes, no filter, no effects. A note sounds at a
+ * steady level for as long as it is held, which is what makes the spectrum
+ * readable, and the sequencer cuts it by triggering a silent instrument.
  */
-function bareTone(name: string): M8Patch {
+export function bareTone(name: string): M8Patch {
   const patch = createDefaultPatch();
   patch.name = name;
   patch.algo = 0x0b; // A+B+C+D, so operator A reaches the output on its own
@@ -70,26 +78,40 @@ function bareTone(name: string): M8Patch {
   return patch;
 }
 
-const EIGHT_STEPS = [0x00, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xe0, 0xff];
+/** An instrument that makes no sound, used to cut the note before the next one. */
+export function silentInstrument(): M8Patch {
+  const patch = bareTone('CAL SILENT');
+  patch.volume = 0x00;
+  patch.operators.forEach((op) => {
+    op.level = 0x00;
+  });
+  return patch;
+}
 
-export function calibrationPatches(): CalibrationPatch[] {
-  const patches: CalibrationPatch[] = [];
+const NINE_STEPS = [0x00, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xe0, 0xff];
+
+export function calibrationTests(): CalibrationTest[] {
+  const tests: CalibrationTest[] = [];
 
   // 1. Envelope decay -----------------------------------------------------
-  const env = bareTone('CAL1 ENV');
-  env.volume = 0x00; // the envelope supplies the whole level
-  env.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: 0x80, dest: DEST_VOLUME, retrigger: 0x00 };
-  patches.push({
+  const envelopeBase = bareTone('CAL1 ENV');
+  envelopeBase.volume = 0x00; // the envelope supplies the whole level
+  envelopeBase.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: 0x80, dest: DEST_VOLUME, retrigger: 0x00 };
+  tests.push({
     id: 'CAL1-ENV',
     measures: 'ENV DECAY value -> seconds, and the shape of the decay',
-    sweep: 'ENV1 DEC',
+    parameter: 'ENV1 DEC',
     // Starts at 10 rather than 00: with ATK and HOLD at 00 a decay of 00 is
     // silent, which measures nothing.
     values: [0x10, 0x20, 0x40, 0x60, 0x80, 0xa0, 0xc0, 0xe0, 0xff],
     fixes: 'envDecaySeconds() and the AHD curve in fm-processor.js. A pure sine '
-      + 'carrier means the recorded waveform IS the envelope, so both the timing '
-      + 'and the curve fall straight out of it.',
-    patch: env
+      + 'carrier means the recorded waveform IS the envelope, so the timing and '
+      + 'the curve shape both fall straight out of it.',
+    phrases: 4, // long decays need room to finish before the next note
+    patch: envelopeBase,
+    apply: (patch, value) => {
+      patch.envelopes[0].decay = value;
+    }
   });
 
   // 2. Operator level -> modulation index ---------------------------------
@@ -97,104 +119,191 @@ export function calibrationPatches(): CalibrationPatch[] {
   index.algo = 0x07; // [A>B]+[C>D], so A modulates B and nothing else sounds
   index.operators[0] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x00, feedback: 0x00, modA: 0x00, modB: 0x00 };
   index.operators[1] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xff, feedback: 0x00, modA: 0x00, modB: 0x00 };
-  patches.push({
+  tests.push({
     id: 'CAL2-INDEX',
-    measures: 'operator LEVEL -> modulation depth, and LEVEL -> output gain',
-    sweep: 'OP A LEV (then a second pass on OP B LEV with OP A back at 00)',
-    values: EIGHT_STEPS,
+    measures: 'operator LEVEL -> modulation depth',
+    parameter: 'OP A LEV',
+    values: NINE_STEPS,
     fixes: 'MAX_PM_CYCLES and levelToPmCycles(). A 1:1 operator pair has a '
       + 'spectrum whose harmonic amplitudes are Bessel functions of the '
-      + 'modulation index, so the index can be solved exactly from the recording. '
-      + 'The second pass gives levelToAmplitude(). This is the biggest single '
-      + 'influence on FM timbre.',
-    patch: index
+      + 'modulation index, so the index is solvable exactly from the recording. '
+      + 'This is the single biggest influence on FM timbre.',
+    phrases: 1,
+    patch: index,
+    apply: (patch, value) => {
+      patch.operators[0].level = value;
+    }
   });
 
-  // 3. Filter --------------------------------------------------------------
-  const filter = bareTone('CAL3 FILT');
-  filter.operators[0].shape = OSC_SAW; // broadband, so the cutoff is visible
-  filter.filter = { type: FILTER_LOWPASS, cutoff: 0x80, res: 0x00 };
-  patches.push({
-    id: 'CAL3-FILT',
-    measures: 'CUTOFF value -> hertz, the filter slope, and what RES does',
-    sweep: 'FILTER CUT (then a second pass on RES with CUT at 80)',
-    values: EIGHT_STEPS,
+  // 3. Operator level -> output gain ---------------------------------------
+  tests.push({
+    id: 'CAL3-GAIN',
+    measures: 'carrier LEVEL -> output gain',
+    parameter: 'OP A LEV',
+    values: NINE_STEPS,
+    fixes: 'levelToAmplitude(). Currently assumed linear. The same operator with '
+      + 'nothing modulating it, so only its own level affects the result.',
+    phrases: 1,
+    patch: bareTone('CAL3 GAIN'),
+    apply: (patch, value) => {
+      patch.operators[0].level = value;
+    }
+  });
+
+  // 4. Filter cutoff -------------------------------------------------------
+  const cutoff = bareTone('CAL4 CUT');
+  cutoff.operators[0].shape = OSC_SAW; // broadband, so the corner is visible
+  cutoff.filter = { type: FILTER_LOWPASS, cutoff: 0x80, res: 0x00 };
+  tests.push({
+    id: 'CAL4-CUT',
+    measures: 'CUTOFF value -> hertz, and the filter slope',
+    parameter: 'FILTER CUT',
+    values: NINE_STEPS,
     fixes: 'cutoffHz() and the SvFilter in fm-processor.js. A saw has a known '
-      + 'harmonic series, so the corner frequency and the roll-off slope read '
-      + 'straight off the spectrum.',
-    patch: filter
+      + 'harmonic series, so the corner frequency and the roll-off read straight '
+      + 'off the spectrum.',
+    phrases: 1,
+    patch: cutoff,
+    apply: (patch, value) => {
+      patch.filter.cutoff = value;
+    }
   });
 
-  // 4. MOD bus semantics ---------------------------------------------------
-  const mod = bareTone('CAL4 MOD');
-  mod.operators[0].level = 0x40;
-  mod.operators[0].modA = encodeModSlot(1, MOD_TARGET_LEV); // 1>LEV
-  mod.mods = [0x00, 0x00, 0x00, 0x00];
-  patches.push({
-    id: 'CAL4-MOD',
+  // 5. Filter resonance ----------------------------------------------------
+  const resonance = bareTone('CAL5 RES');
+  resonance.operators[0].shape = OSC_SAW;
+  resonance.filter = { type: FILTER_LOWPASS, cutoff: 0x80, res: 0x00 };
+  tests.push({
+    id: 'CAL5-RES',
+    measures: 'what RES does, and whether it is self-oscillating at the top',
+    parameter: 'FILTER RES',
+    values: NINE_STEPS,
+    fixes: 'the resonance term in SvFilter. Cutoff is parked at 80 so only RES '
+      + 'changes.',
+    phrases: 1,
+    patch: resonance,
+    apply: (patch, value) => {
+      patch.filter.res = value;
+    }
+  });
+
+  // 6. MOD bus semantics ---------------------------------------------------
+  const modBus = bareTone('CAL6 MOD');
+  modBus.operators[0].level = 0x40;
+  modBus.operators[0].modA = encodeModSlot(1, MOD_TARGET_LEV); // 1>LEV
+  tests.push({
+    id: 'CAL6-MOD',
     measures: 'whether a MOD bus adds to an operator parameter or scales it',
-    sweep: 'MOD1',
+    parameter: 'MOD1',
     values: [0x00, 0x40, 0x80, 0xc0, 0xff],
     fixes: 'the bus model in fm-processor.js. OP A sits at LEV 40 with MOD A set '
       + 'to 1>LEV. If the output tracks LEV 40/80/C0/FF/FF it is additive, which '
       + 'is what this app assumes; anything else means the two-level modulation '
-      + 'matrix is modelled wrongly, which would affect every patch that uses a '
-      + 'MOD slot.',
-    patch: mod
+      + 'matrix is modelled wrongly, which affects every patch using a MOD slot.',
+    phrases: 1,
+    patch: modBus,
+    apply: (patch, value) => {
+      patch.mods[0] = value;
+    }
   });
 
-  // 5. Feedback ------------------------------------------------------------
-  const feedback = bareTone('CAL5 FBK');
-  patches.push({
-    id: 'CAL5-FBK',
-    measures: 'FBK value -> feedback depth, and where the sine becomes saw then noise',
-    sweep: 'OP A FB',
-    values: EIGHT_STEPS,
-    fixes: 'MAX_FEEDBACK_CYCLES. The harmonic series of a self-fed sine gives '
-      + 'the feedback depth directly, and the point where it breaks up locates '
-      + 'the top of the range.',
-    patch: feedback
+  // 7. Feedback ------------------------------------------------------------
+  tests.push({
+    id: 'CAL7-FBK',
+    measures: 'FBK value -> feedback depth, and where sine becomes saw then noise',
+    parameter: 'OP A FB',
+    values: NINE_STEPS,
+    fixes: 'MAX_FEEDBACK_CYCLES. The harmonic series of a self-fed sine gives the '
+      + 'feedback depth, and the point where it breaks up locates the top of the '
+      + 'range.',
+    phrases: 1,
+    patch: bareTone('CAL7 FBK'),
+    apply: (patch, value) => {
+      patch.operators[0].feedback = value;
+    }
   });
 
-  // 6. Operator waveforms --------------------------------------------------
-  const shape = bareTone('CAL6 SHAPE');
-  patches.push({
-    id: 'CAL6-SHAPE',
+  // 8. Operator waveforms --------------------------------------------------
+  tests.push({
+    id: 'CAL8-SHAPE',
     measures: 'the actual waveform behind each SHAPE name',
-    sweep: 'OP A shape (SIN, SW2..SW6, TRI, SAW, SQR, PUL, IMP, NOI, ...)',
+    parameter: 'OP A shape',
     values: [...Array(16).keys()],
     fixes: 'oscillator() in fm-processor.js. SW2..SW6 are currently invented -- '
       + 'sine-to-saw blends -- because there is no published description of them. '
       + 'One steady note per shape gives the harmonic series of each, which is '
       + 'enough to reproduce them properly.',
-    patch: shape
+    phrases: 1,
+    patch: bareTone('CAL8 SHAPE'),
+    apply: (patch, value) => {
+      patch.operators[0].shape = value;
+    }
   });
 
-  // 7. LFO rate ------------------------------------------------------------
-  const lfo = bareTone('CAL7 LFO');
-  lfo.lfos[0] = { amount: 0xff, shape: LFO_TRI, trigger: 0x00, freq: 0x40, dest: DEST_VOLUME };
-  patches.push({
-    id: 'CAL7-LFO',
+  // 9. LFO rate ------------------------------------------------------------
+  const lfo = bareTone('CAL9 LFO');
+  // Half depth rather than full: at AMT FF the tremolo dips to silence every
+  // cycle, which reads as a run of separate notes. Half depth measures the rate
+  // just as well and stays continuous.
+  lfo.lfos[0] = { amount: 0x80, shape: LFO_TRI, trigger: 0x00, freq: 0x40, dest: DEST_VOLUME };
+  tests.push({
+    id: 'CAL9-LFO',
     measures: 'LFO FREQ value -> hertz',
-    sweep: 'LFO1 FRQ',
-    values: EIGHT_STEPS,
-    fixes: 'lfoFreqHz(). The tremolo rate is directly countable from the '
-      + 'recorded amplitude envelope.',
-    patch: lfo
+    parameter: 'LFO1 FRQ',
+    // Skips the bottom of the range: below about 0.2 Hz a cycle is longer than
+    // the note, so there is nothing to count.
+    values: [0x40, 0x60, 0x80, 0x98, 0xb0, 0xc8, 0xe0, 0xf0, 0xff],
+    fixes: 'lfoFreqHz(). The tremolo rate is directly countable from the recorded '
+      + 'amplitude envelope.',
+    phrases: 2, // slow rates need a couple of cycles to be countable
+    patch: lfo,
+    apply: (patch, value) => {
+      patch.lfos[0].freq = value;
+    }
   });
 
-  return patches;
+  return tests;
 }
 
-/** A human-readable summary of one calibration patch, for the README. */
-export function describeCalibration(entry: CalibrationPatch): string {
+/** One measurement point: a patch, and what it is a measurement of. */
+export interface SweepPoint {
+  test: string;
+  parameter: string;
+  value: number;
+  label: string;
+  phrases: number;
+  patch: M8Patch;
+}
+
+/** Expands every test into one patch per sweep value. */
+export function calibrationSweep(tests = calibrationTests()): SweepPoint[] {
+  const points: SweepPoint[] = [];
+  for (const test of tests) {
+    for (const value of test.values) {
+      const patch = clonePatch(test.patch);
+      test.apply(patch, value);
+      points.push({
+        test: test.id,
+        parameter: test.parameter,
+        value,
+        label: `${test.parameter} = ${hex(value)}`,
+        phrases: test.phrases,
+        patch
+      });
+    }
+  }
+  return points;
+}
+
+/** A human-readable summary of one calibration test, for the README. */
+export function describeCalibration(test: CalibrationTest): string {
   return [
-    `### ${entry.id}`,
+    `### ${test.id}`,
     '',
-    `**Measures:** ${entry.measures}`,
+    `**Measures:** ${test.measures}`,
     '',
-    `**Sweep:** \`${entry.sweep}\` through ${entry.values.map((v) => hex(v)).join(', ')}`,
+    `**Steps \`${test.parameter}\` through:** ${test.values.map((v) => hex(v)).join(', ')}`,
     '',
-    entry.fixes
+    test.fixes
   ].join('\n');
 }
