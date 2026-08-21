@@ -12,12 +12,12 @@ const __filename = fileURLToPath(import.meta.url);
  * The mapping is stored as an array of control points `[appVal, m8Val]`.
  * Linear interpolation between control points is used at runtime.
  */
-export function buildCompensationTable(hwJsonPath) {
+export function buildCompensationTable(hwJsonPath: string) {
   const raw = JSON.parse(fs.readFileSync(hwJsonPath, 'utf8'));
   const hw = Array.isArray(raw) ? raw[0] : raw;
 
-  const notesByTest = {};
-  for (const n of hw.notes) {
+  const notesByTest: Record<string, any[]> = {};
+  for (const n of (hw.notes as any[])) {
     if (!notesByTest[n.test]) notesByTest[n.test] = [];
     notesByTest[n.test].push(n);
   }
@@ -28,11 +28,11 @@ export function buildCompensationTable(hwJsonPath) {
   const envNotes = notesByTest['CAL1-ENV'] || [];
   const hwDecayTable = [
     { value: 0, decay: 0 },
-    ...envNotes.map(n => ({ value: n.value ?? parseInt(n.valueHex || '0', 16), decay: n.decayTotalSeconds ?? 0 }))
+    ...envNotes.map((n: any) => ({ value: n.value ?? parseInt(n.valueHex || '0', 16), decay: n.decayTotalSeconds ?? 0 }))
   ];
 
   // Invert: for an app decay duration T = envDecaySeconds(appVal), find m8Val
-  function findM8Decay(targetSeconds) {
+  function findM8Decay(targetSeconds: number): number {
     if (targetSeconds <= 0) return 0;
     const maxHw = hwDecayTable[hwDecayTable.length - 1];
     if (targetSeconds >= maxHw.decay) return 255;
@@ -55,13 +55,13 @@ export function buildCompensationTable(hwJsonPath) {
   // HW measured peak amplitude for carrier LEV:
   // [00, 20, 40, 60, 80, A0, C0, E0, FF] -> [0, 0.0214, 0.0428, 0.0643, 0.0863, 0.1726, 0.3451, 0.3484, 0.3484]
   const gainNotes = notesByTest['CAL3-GAIN'] || [];
-  const maxGain = Math.max(...gainNotes.map(n => n.peak || 0), 1e-6);
+  const maxGain = Math.max(...gainNotes.map((n: any) => n.peak || 0), 1e-6);
   const hwGainTable = [
     { value: 0, normPeak: 0 },
-    ...gainNotes.map(n => ({ value: n.value ?? parseInt(n.valueHex || '0', 16), normPeak: (n.peak || 0) / maxGain }))
+    ...gainNotes.map((n: any) => ({ value: n.value ?? parseInt(n.valueHex || '0', 16), normPeak: (n.peak || 0) / maxGain }))
   ];
 
-  function findM8CarrierGain(targetNorm) {
+  function findM8CarrierGain(targetNorm: number): number {
     if (targetNorm <= 0) return 0;
     if (targetNorm >= 1.0) return 255;
     for (let i = 0; i < hwGainTable.length - 1; i++) {

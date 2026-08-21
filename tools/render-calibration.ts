@@ -1,12 +1,11 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { calibrationSweep, silentInstrument } from '../src/audio/Calibration.ts';
+import { calibrationSweep } from '../src/audio/Calibration.ts';
 import {
   CALIBRATION_NOTE,
   PHRASE_SECONDS,
-  STEP_SECONDS,
-  buildCalibrationSong
+  STEP_SECONDS
 } from '../src/audio/CalibrationSong.ts';
 import { buildRenderSpec, noteToFrequency } from '../src/audio/FmEngine.ts';
 // @ts-ignore
@@ -19,9 +18,16 @@ const BLOCK_SIZE = 128;
 const CUT_AFTER_STEPS = 8;
 const TAIL_SILENCE_STEPS = 4;
 
-export function renderCalibrationSweep(options = {}) {
+export interface RenderCalibrationOptions {
+  sampleRate?: number;
+  masterGain?: number;
+}
+
+export function renderCalibrationSweep(options: RenderCalibrationOptions = {}) {
   const sampleRate = options.sampleRate ?? SAMPLE_RATE;
   const masterGain = options.masterGain ?? 0.5;
+  const sweep = calibrationSweep();
+  const totalSamples: number[] = [];
   const leadFrames = Math.round(0.5 * sampleRate);
   for (let s = 0; s < leadFrames; s++) totalSamples.push(0);
 
