@@ -1,4 +1,4 @@
-import workletUrl from './fm-processor.js?url';
+const workletUrl = new URL('./fm-processor.js', import.meta.url).href;
 import {
   CUTOFF_MAX_HZ,
   CUTOFF_MIN_HZ,

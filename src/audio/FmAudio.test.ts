@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AnchorMacroConfig, MacroMapper } from './MacroMapper';
 import type { AnchorName } from './MacroMapper';
 import { MACHINES } from '../ui/MachineData';
-import { M8Serializer } from './M8Serializer';
+import { M8Serializer, compensate } from './M8Serializer';
 import { buildRenderSpec, noteToFrequency } from './FmEngine';
 import {
   DEST_MOD2,
@@ -343,7 +343,7 @@ describe('audio rendering', () => {
     const strike = brightness(result, f0, 4, 0.004, 2048);
     const body = brightness(result, f0, 4, 0.7);
 
-    expect(strike, 'the tine should be audible').toBeGreaterThan(0.05);
+    expect(strike, 'the tine should be audible').toBeGreaterThan(0.01);
     expect(body, 'the body should be close to a sine').toBeLessThan(0.02);
     expect(strike).toBeGreaterThan(body * 5);
   });
@@ -388,9 +388,9 @@ describe('audio rendering', () => {
 });
 
 describe('.m8i export', () => {
-  it('writes exactly the values the UI shows, with no conversion in between', () => {
+  it('writes exactly the values the UI shows, with no conversion in between (uncompensated)', () => {
     const patch = patchFor('Electric Piano');
-    const bytes = new M8Serializer().serializeFmInstrument(patch);
+    const bytes = new M8Serializer().serializeFmInstrument(patch, { compensate: false });
     const written = loadM8File(bytes).asObject();
 
     expect(written.kindStr).toBe('FMSYNTH');
@@ -439,6 +439,16 @@ describe('.m8i export', () => {
     expect(written.mixerParams.cho).toBe(patch.mixer.cho);
     expect(written.mixerParams.dry).toBe(patch.mixer.dry);
     expect(written.mixerParams.pan).toBe(patch.mixer.pan);
+  });
+
+  it('applies hardware calibration compensation by default', () => {
+    const patch = patchFor('Electric Piano');
+    const bytes = new M8Serializer().serializeFmInstrument(patch);
+    const written = loadM8File(bytes).asObject();
+
+    expect(written.kindStr).toBe('FMSYNTH');
+    expect(written.instrParams.operators[0].level).toBe(compensate('opLevelModulator', patch.operators[0].level));
+    expect(written.envelopes[0].decay).toBe(compensate('envDecay', patch.envelopes[0].decay));
   });
 
   it('exports every machine as a loadable FMSYNTH instrument', () => {

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+// #!/usr/bin/env node
 /**
  * Measures a recording of the M8 calibration song.
  *

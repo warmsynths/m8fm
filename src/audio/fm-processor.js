@@ -137,10 +137,42 @@ class NoiseState {
   }
 }
 
+const SW_DBS = [
+  [0, -18.5, -11, -18.4, -16.3, -19.4, -22.9, -21.6, -29.3, -22.6, -40.9, -26, -46.3, -28.7, -38.4, -32.7],
+  [-0.1, 0, -1, -3.2, -4.2, -7.6, -10.2, -14.3, -20.5, -27, -39.3, -54.4, -42.5, -34.4, -28.7, -27.1],
+  [0, -17.1, -9.9, -18.6, -16.1, -19.9, -22.1, -21.2, -26.8, -23.6, -27.4, -26.8, -26.9, -30, -27.5, -30.6],
+  [0, -0.2, -8.3, -104.7, -17.3, -9.8, -14.7, -115, -30, -15.8, -18, -118.7, -45, -21.8, -21.3, -114.2],
+  [0, -103.8, -8.3, -17.3, -17.3, -111, -14.7, -18.6, -30, -112.2, -18, -19.6, -45, -111.4, -21.3, -20.4]
+];
+
+const SW_TABLE_SIZE = 2048;
+const SW_TABLES = SW_DBS.map((dbs) => {
+  const table = new Float64Array(SW_TABLE_SIZE + 1);
+  const amps = dbs.map((db) => (db <= -90 ? 0 : Math.pow(10, db / 20)));
+  for (let i = 0; i <= SW_TABLE_SIZE; i++) {
+    const x = i / SW_TABLE_SIZE;
+    let sum = 0;
+    for (let k = 0; k < amps.length; k++) {
+      if (amps[k] > 0) {
+        sum += amps[k] * Math.sin(TWO_PI * (k + 1) * x);
+      }
+    }
+    table[i] = sum;
+  }
+  let max = 0;
+  for (let i = 0; i <= SW_TABLE_SIZE; i++) {
+    if (Math.abs(table[i]) > max) max = Math.abs(table[i]);
+  }
+  if (max > 0) {
+    for (let i = 0; i <= SW_TABLE_SIZE; i++) table[i] /= max;
+  }
+  return table;
+});
+
 /**
  * Operator waveforms, indexed by the M8 SHAPE value. `p` is a phase in cycles.
- * SW2..SW6 are the M8's sine variants, approximated as a progressive blend from
- * sine towards saw; the NLP/NHP/NBP shapes as filtered noise.
+ * SW2..SW6 are synthesized from harmonic spectra measured off M8 hardware.
+ * NLP/NHP/NBP shapes are filtered noise.
  */
 function oscillator(shape, p, noiseState) {
   const x = wrap(p);
@@ -152,8 +184,11 @@ function oscillator(shape, p, noiseState) {
     case 3: // SW4
     case 4: // SW5
     case 5: { // SW6
-      const blend = shape / 6;
-      return (1 - blend) * Math.sin(TWO_PI * x) + blend * (2 * x - 1);
+      const table = SW_TABLES[shape - 1];
+      const pos = x * SW_TABLE_SIZE;
+      const idx = Math.floor(pos);
+      const frac = pos - idx;
+      return table[idx] * (1 - frac) + table[idx + 1] * frac;
     }
     case 6: // TRI
       return 4 * Math.abs(x - 0.5) - 1;
@@ -180,7 +215,7 @@ function oscillator(shape, p, noiseState) {
   }
 }
 
-/** AHD envelope. Attacks to 1, holds, then decays back to 0 and stays there. */
+/** AHD envelope. Attacks to 1, holds, then decays back to 0 (exponent 8 to match M8 hardware). */
 function ahdValue(t, attack, hold, decay) {
   if (t <= 0) return 0;
   if (t < attack) return t / attack;
@@ -190,7 +225,9 @@ function ahdValue(t, attack, hold, decay) {
   if (decay <= 0) return 0;
   if (afterHold >= decay) return 0;
   const x = 1 - afterHold / decay;
-  return x * x;
+  const x2 = x * x;
+  const x4 = x2 * x2;
+  return x4 * x4;
 }
 
 /** Total time an AHD envelope takes to return to zero. */
