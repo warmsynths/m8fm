@@ -195,13 +195,24 @@ Peak output was proportional to `LEV` from `00` to `80`, with a crest factor of
 1.414 throughout, confirming a clean sine. Above that the recording's own chain
 limited, so the top of that range has not been measured cleanly.
 
+### Operator output clips above about LEV C0
+
+A plain sine holds a crest factor of 1.41 from `LEV 20` up to `C0`, then
+flattens to 1.13 at `E0` and 1.06 at `FF`. The peak stops rising at that point
+while the RMS keeps climbing, which is what a signal running into a ceiling looks
+like.
+
+This happens inside the instrument, ahead of the filter — a resonant filter peak
+in the same recording reached more than twice that level cleanly — so turning the
+recording level down does not avoid it. Keep operators that are not themselves
+being measured at `LEV A0` or below.
+
 ### Still unmeasured
 
-Modulation index, feedback depth, LFO rate and the `SW2`-`SW6` waveforms all sit
-at `LEV FF` in the calibration instruments, and that was hot enough to be
-limited in the recording, so their spectra are not trustworthy yet. They need a
-re-record with more headroom; the analyser now flags flattened peaks so it
-cannot happen silently again.
+Modulation index, feedback depth, LFO rate and the `SW2`-`SW6` waveforms were all
+measured from a recording whose operators sat at `LEV FF`, so their spectra were
+taken from clipped waveforms and cannot be trusted. The calibration instruments
+now sit at `LEV A0`, so re-recording the song will settle them.
 
 ---
 

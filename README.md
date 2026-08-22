@@ -50,9 +50,12 @@ does:
   operator whose bus rests at zero is silent however high its own `LEVEL` is.
 
 Modulation index, feedback, LFO rate and the `SW2`-`SW6` waveforms are still
-estimates: those calibration instruments sit at `LEV FF`, which was loud enough
-to be limited in the recording. The analyser now flags flattened peaks, so a
-re-take with more headroom will say so rather than quietly producing bad numbers.
+estimates. The first recording was made with every calibration operator at
+`LEV FF`, and an M8 operator clips above about `LEV C0` — a plain sine measures a
+crest factor of 1.41 up to `C0` and 1.06 at `FF`. That is inside the instrument,
+before the filter, so it is not something a recording level could have avoided.
+The calibration instruments now sit at `LEV A0`, well clear of it, so a fresh
+recording of the song will measure those curves cleanly with nothing to set up.
 
 ## Technology Stack
 

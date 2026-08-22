@@ -59,6 +59,8 @@ export interface ManifestNote {
   value: number;
   valueHex: string;
   label: string;
+  /** See SweepPoint: whether a crest factor below 1.41 means clipping here. */
+  expectPureSine: boolean;
   instrument: number;
   startSeconds: number;
   slotSeconds: number;
@@ -119,6 +121,7 @@ export function buildCalibrationSong(points: SweepPoint[] = calibrationSweep()):
       value: point.value,
       valueHex: hex(point.value),
       label: point.label,
+      expectPureSine: point.expectPureSine,
       instrument: instrumentSlot,
       startSeconds: +elapsed.toFixed(3),
       slotSeconds: +(point.phrases * PHRASE_SECONDS).toFixed(3)

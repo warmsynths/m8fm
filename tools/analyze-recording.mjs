@@ -518,6 +518,7 @@ function analyze(filePath, options = {}) {
         truncated: !!note.truncated,
         peak: +peak.toFixed(4),
         peakDb: +(20 * Math.log10(Math.max(peak, 1e-9))).toFixed(1),
+        expectPureSine: expected?.expectPureSine ?? false,
         crestFactor: null
       };
 
@@ -638,14 +639,18 @@ function report(result) {
     lines.push('');
   }
 
-  // A sine has a crest factor of 1.41. Anything much flatter has had its peaks
-  // squashed by a limiter somewhere in the chain, well before it reaches full
-  // scale -- which silently ruins any measurement made from its spectrum.
-  const squashed = sounded.filter((n) => n.crestFactor !== null && n.crestFactor < 1.25);
+  // A sine has a crest factor of 1.41, so anything much flatter has had its
+  // peaks squashed -- but only where a sine is what was played. A square wave is
+  // legitimately 1.00 and an FM tone legitimately lower, so this is checked only
+  // against measurements the manifest marks as unmodulated sines.
+  const squashed = sounded.filter((n) => n.expectPureSine && n.crestFactor !== null && n.crestFactor < 1.25);
   if (squashed.length > 0) {
-    lines.push(`  !! ${squashed.length} measurement(s) have flattened peaks (crest factor below`);
-    lines.push('     1.25, where a clean sine is 1.41). Something in the chain is limiting.');
-    lines.push('     Spectra from those rows cannot be trusted; re-record with more headroom.');
+    lines.push(`  !! ${squashed.length} sine measurement(s) have flattened peaks (crest factor`);
+    lines.push('     below 1.25, where a clean sine is 1.41). Anything measured from those');
+    lines.push('     rows\' spectra is unreliable:');
+    for (const n of squashed.slice(0, 6)) {
+      lines.push(`       ${n.label ?? `#${n.index}`}  crest ${n.crestFactor}`);
+    }
     lines.push('');
   }
 

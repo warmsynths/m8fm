@@ -13,6 +13,7 @@
       "value": 16,
       "valueHex": "10",
       "label": "ENV1 DEC = 10",
+      "expectPureSine": true,
       "instrument": 1,
       "startSeconds": 0,
       "slotSeconds": 16
@@ -24,6 +25,7 @@
       "value": 32,
       "valueHex": "20",
       "label": "ENV1 DEC = 20",
+      "expectPureSine": true,
       "instrument": 2,
       "startSeconds": 16,
       "slotSeconds": 16
@@ -35,6 +37,7 @@
       "value": 64,
       "valueHex": "40",
       "label": "ENV1 DEC = 40",
+      "expectPureSine": true,
       "instrument": 3,
       "startSeconds": 32,
       "slotSeconds": 16
@@ -46,6 +49,7 @@
       "value": 96,
       "valueHex": "60",
       "label": "ENV1 DEC = 60",
+      "expectPureSine": true,
       "instrument": 4,
       "startSeconds": 48,
       "slotSeconds": 16
@@ -57,6 +61,7 @@
       "value": 128,
       "valueHex": "80",
       "label": "ENV1 DEC = 80",
+      "expectPureSine": true,
       "instrument": 5,
       "startSeconds": 64,
       "slotSeconds": 16
@@ -68,6 +73,7 @@
       "value": 160,
       "valueHex": "A0",
       "label": "ENV1 DEC = A0",
+      "expectPureSine": true,
       "instrument": 6,
       "startSeconds": 80,
       "slotSeconds": 16
@@ -79,6 +85,7 @@
       "value": 192,
       "valueHex": "C0",
       "label": "ENV1 DEC = C0",
+      "expectPureSine": true,
       "instrument": 7,
       "startSeconds": 96,
       "slotSeconds": 16
@@ -90,6 +97,7 @@
       "value": 224,
       "valueHex": "E0",
       "label": "ENV1 DEC = E0",
+      "expectPureSine": true,
       "instrument": 8,
       "startSeconds": 112,
       "slotSeconds": 16
@@ -101,6 +109,7 @@
       "value": 255,
       "valueHex": "FF",
       "label": "ENV1 DEC = FF",
+      "expectPureSine": true,
       "instrument": 9,
       "startSeconds": 128,
       "slotSeconds": 16
@@ -112,6 +121,7 @@
       "value": 0,
       "valueHex": "00",
       "label": "OP A LEV = 00",
+      "expectPureSine": false,
       "instrument": 10,
       "startSeconds": 144,
       "slotSeconds": 4
@@ -123,6 +133,7 @@
       "value": 32,
       "valueHex": "20",
       "label": "OP A LEV = 20",
+      "expectPureSine": false,
       "instrument": 11,
       "startSeconds": 148,
       "slotSeconds": 4
@@ -134,6 +145,7 @@
       "value": 64,
       "valueHex": "40",
       "label": "OP A LEV = 40",
+      "expectPureSine": false,
       "instrument": 12,
       "startSeconds": 152,
       "slotSeconds": 4
@@ -145,6 +157,7 @@
       "value": 96,
       "valueHex": "60",
       "label": "OP A LEV = 60",
+      "expectPureSine": false,
       "instrument": 13,
       "startSeconds": 156,
       "slotSeconds": 4
@@ -156,6 +169,7 @@
       "value": 128,
       "valueHex": "80",
       "label": "OP A LEV = 80",
+      "expectPureSine": false,
       "instrument": 14,
       "startSeconds": 160,
       "slotSeconds": 4
@@ -167,6 +181,7 @@
       "value": 160,
       "valueHex": "A0",
       "label": "OP A LEV = A0",
+      "expectPureSine": false,
       "instrument": 15,
       "startSeconds": 164,
       "slotSeconds": 4
@@ -178,6 +193,7 @@
       "value": 192,
       "valueHex": "C0",
       "label": "OP A LEV = C0",
+      "expectPureSine": false,
       "instrument": 16,
       "startSeconds": 168,
       "slotSeconds": 4
@@ -189,6 +205,7 @@
       "value": 224,
       "valueHex": "E0",
       "label": "OP A LEV = E0",
+      "expectPureSine": false,
       "instrument": 17,
       "startSeconds": 172,
       "slotSeconds": 4
@@ -200,6 +217,7 @@
       "value": 255,
       "valueHex": "FF",
       "label": "OP A LEV = FF",
+      "expectPureSine": false,
       "instrument": 18,
       "startSeconds": 176,
       "slotSeconds": 4
@@ -211,6 +229,7 @@
       "value": 0,
       "valueHex": "00",
       "label": "OP A LEV = 00",
+      "expectPureSine": true,
       "instrument": 19,
       "startSeconds": 180,
       "slotSeconds": 4
@@ -222,6 +241,7 @@
       "value": 32,
       "valueHex": "20",
       "label": "OP A LEV = 20",
+      "expectPureSine": true,
       "instrument": 20,
       "startSeconds": 184,
       "slotSeconds": 4
@@ -233,6 +253,7 @@
       "value": 64,
       "valueHex": "40",
       "label": "OP A LEV = 40",
+      "expectPureSine": true,
       "instrument": 21,
       "startSeconds": 188,
       "slotSeconds": 4
@@ -244,6 +265,7 @@
       "value": 96,
       "valueHex": "60",
       "label": "OP A LEV = 60",
+      "expectPureSine": true,
       "instrument": 22,
       "startSeconds": 192,
       "slotSeconds": 4
@@ -255,6 +277,7 @@
       "value": 128,
       "valueHex": "80",
       "label": "OP A LEV = 80",
+      "expectPureSine": true,
       "instrument": 23,
       "startSeconds": 196,
       "slotSeconds": 4
@@ -266,6 +289,7 @@
       "value": 160,
       "valueHex": "A0",
       "label": "OP A LEV = A0",
+      "expectPureSine": true,
       "instrument": 24,
       "startSeconds": 200,
       "slotSeconds": 4
@@ -277,6 +301,7 @@
       "value": 192,
       "valueHex": "C0",
       "label": "OP A LEV = C0",
+      "expectPureSine": true,
       "instrument": 25,
       "startSeconds": 204,
       "slotSeconds": 4
@@ -288,6 +313,7 @@
       "value": 224,
       "valueHex": "E0",
       "label": "OP A LEV = E0",
+      "expectPureSine": true,
       "instrument": 26,
       "startSeconds": 208,
       "slotSeconds": 4
@@ -299,6 +325,7 @@
       "value": 255,
       "valueHex": "FF",
       "label": "OP A LEV = FF",
+      "expectPureSine": true,
       "instrument": 27,
       "startSeconds": 212,
       "slotSeconds": 4
@@ -310,6 +337,7 @@
       "value": 0,
       "valueHex": "00",
       "label": "FILTER CUT = 00",
+      "expectPureSine": false,
       "instrument": 28,
       "startSeconds": 216,
       "slotSeconds": 4
@@ -321,6 +349,7 @@
       "value": 32,
       "valueHex": "20",
       "label": "FILTER CUT = 20",
+      "expectPureSine": false,
       "instrument": 29,
       "startSeconds": 220,
       "slotSeconds": 4
@@ -332,6 +361,7 @@
       "value": 64,
       "valueHex": "40",
       "label": "FILTER CUT = 40",
+      "expectPureSine": false,
       "instrument": 30,
       "startSeconds": 224,
       "slotSeconds": 4
@@ -343,6 +373,7 @@
       "value": 96,
       "valueHex": "60",
       "label": "FILTER CUT = 60",
+      "expectPureSine": false,
       "instrument": 31,
       "startSeconds": 228,
       "slotSeconds": 4
@@ -354,6 +385,7 @@
       "value": 128,
       "valueHex": "80",
       "label": "FILTER CUT = 80",
+      "expectPureSine": false,
       "instrument": 32,
       "startSeconds": 232,
       "slotSeconds": 4
@@ -365,6 +397,7 @@
       "value": 160,
       "valueHex": "A0",
       "label": "FILTER CUT = A0",
+      "expectPureSine": false,
       "instrument": 33,
       "startSeconds": 236,
       "slotSeconds": 4
@@ -376,6 +409,7 @@
       "value": 192,
       "valueHex": "C0",
       "label": "FILTER CUT = C0",
+      "expectPureSine": false,
       "instrument": 34,
       "startSeconds": 240,
       "slotSeconds": 4
@@ -387,6 +421,7 @@
       "value": 224,
       "valueHex": "E0",
       "label": "FILTER CUT = E0",
+      "expectPureSine": false,
       "instrument": 35,
       "startSeconds": 244,
       "slotSeconds": 4
@@ -398,6 +433,7 @@
       "value": 255,
       "valueHex": "FF",
       "label": "FILTER CUT = FF",
+      "expectPureSine": false,
       "instrument": 36,
       "startSeconds": 248,
       "slotSeconds": 4
@@ -409,6 +445,7 @@
       "value": 0,
       "valueHex": "00",
       "label": "FILTER RES = 00",
+      "expectPureSine": false,
       "instrument": 37,
       "startSeconds": 252,
       "slotSeconds": 4
@@ -420,6 +457,7 @@
       "value": 32,
       "valueHex": "20",
       "label": "FILTER RES = 20",
+      "expectPureSine": false,
       "instrument": 38,
       "startSeconds": 256,
       "slotSeconds": 4
@@ -431,6 +469,7 @@
       "value": 64,
       "valueHex": "40",
       "label": "FILTER RES = 40",
+      "expectPureSine": false,
       "instrument": 39,
       "startSeconds": 260,
       "slotSeconds": 4
@@ -442,6 +481,7 @@
       "value": 96,
       "valueHex": "60",
       "label": "FILTER RES = 60",
+      "expectPureSine": false,
       "instrument": 40,
       "startSeconds": 264,
       "slotSeconds": 4
@@ -453,6 +493,7 @@
       "value": 128,
       "valueHex": "80",
       "label": "FILTER RES = 80",
+      "expectPureSine": false,
       "instrument": 41,
       "startSeconds": 268,
       "slotSeconds": 4
@@ -464,6 +505,7 @@
       "value": 160,
       "valueHex": "A0",
       "label": "FILTER RES = A0",
+      "expectPureSine": false,
       "instrument": 42,
       "startSeconds": 272,
       "slotSeconds": 4
@@ -475,6 +517,7 @@
       "value": 192,
       "valueHex": "C0",
       "label": "FILTER RES = C0",
+      "expectPureSine": false,
       "instrument": 43,
       "startSeconds": 276,
       "slotSeconds": 4
@@ -486,6 +529,7 @@
       "value": 224,
       "valueHex": "E0",
       "label": "FILTER RES = E0",
+      "expectPureSine": false,
       "instrument": 44,
       "startSeconds": 280,
       "slotSeconds": 4
@@ -497,6 +541,7 @@
       "value": 255,
       "valueHex": "FF",
       "label": "FILTER RES = FF",
+      "expectPureSine": false,
       "instrument": 45,
       "startSeconds": 284,
       "slotSeconds": 4
@@ -508,6 +553,7 @@
       "value": 0,
       "valueHex": "00",
       "label": "MOD1 = 00",
+      "expectPureSine": true,
       "instrument": 46,
       "startSeconds": 288,
       "slotSeconds": 4
@@ -519,6 +565,7 @@
       "value": 64,
       "valueHex": "40",
       "label": "MOD1 = 40",
+      "expectPureSine": true,
       "instrument": 47,
       "startSeconds": 292,
       "slotSeconds": 4
@@ -530,6 +577,7 @@
       "value": 128,
       "valueHex": "80",
       "label": "MOD1 = 80",
+      "expectPureSine": true,
       "instrument": 48,
       "startSeconds": 296,
       "slotSeconds": 4
@@ -541,6 +589,7 @@
       "value": 192,
       "valueHex": "C0",
       "label": "MOD1 = C0",
+      "expectPureSine": true,
       "instrument": 49,
       "startSeconds": 300,
       "slotSeconds": 4
@@ -552,6 +601,7 @@
       "value": 255,
       "valueHex": "FF",
       "label": "MOD1 = FF",
+      "expectPureSine": true,
       "instrument": 50,
       "startSeconds": 304,
       "slotSeconds": 4
@@ -563,6 +613,7 @@
       "value": 0,
       "valueHex": "00",
       "label": "OP A FB = 00",
+      "expectPureSine": false,
       "instrument": 51,
       "startSeconds": 308,
       "slotSeconds": 4
@@ -574,6 +625,7 @@
       "value": 32,
       "valueHex": "20",
       "label": "OP A FB = 20",
+      "expectPureSine": false,
       "instrument": 52,
       "startSeconds": 312,
       "slotSeconds": 4
@@ -585,6 +637,7 @@
       "value": 64,
       "valueHex": "40",
       "label": "OP A FB = 40",
+      "expectPureSine": false,
       "instrument": 53,
       "startSeconds": 316,
       "slotSeconds": 4
@@ -596,6 +649,7 @@
       "value": 96,
       "valueHex": "60",
       "label": "OP A FB = 60",
+      "expectPureSine": false,
       "instrument": 54,
       "startSeconds": 320,
       "slotSeconds": 4
@@ -607,6 +661,7 @@
       "value": 128,
       "valueHex": "80",
       "label": "OP A FB = 80",
+      "expectPureSine": false,
       "instrument": 55,
       "startSeconds": 324,
       "slotSeconds": 4
@@ -618,6 +673,7 @@
       "value": 160,
       "valueHex": "A0",
       "label": "OP A FB = A0",
+      "expectPureSine": false,
       "instrument": 56,
       "startSeconds": 328,
       "slotSeconds": 4
@@ -629,6 +685,7 @@
       "value": 192,
       "valueHex": "C0",
       "label": "OP A FB = C0",
+      "expectPureSine": false,
       "instrument": 57,
       "startSeconds": 332,
       "slotSeconds": 4
@@ -640,6 +697,7 @@
       "value": 224,
       "valueHex": "E0",
       "label": "OP A FB = E0",
+      "expectPureSine": false,
       "instrument": 58,
       "startSeconds": 336,
       "slotSeconds": 4
@@ -651,6 +709,7 @@
       "value": 255,
       "valueHex": "FF",
       "label": "OP A FB = FF",
+      "expectPureSine": false,
       "instrument": 59,
       "startSeconds": 340,
       "slotSeconds": 4
@@ -662,6 +721,7 @@
       "value": 0,
       "valueHex": "00",
       "label": "OP A shape = 00",
+      "expectPureSine": false,
       "instrument": 60,
       "startSeconds": 344,
       "slotSeconds": 4
@@ -673,6 +733,7 @@
       "value": 1,
       "valueHex": "01",
       "label": "OP A shape = 01",
+      "expectPureSine": false,
       "instrument": 61,
       "startSeconds": 348,
       "slotSeconds": 4
@@ -684,6 +745,7 @@
       "value": 2,
       "valueHex": "02",
       "label": "OP A shape = 02",
+      "expectPureSine": false,
       "instrument": 62,
       "startSeconds": 352,
       "slotSeconds": 4
@@ -695,6 +757,7 @@
       "value": 3,
       "valueHex": "03",
       "label": "OP A shape = 03",
+      "expectPureSine": false,
       "instrument": 63,
       "startSeconds": 356,
       "slotSeconds": 4
@@ -706,6 +769,7 @@
       "value": 4,
       "valueHex": "04",
       "label": "OP A shape = 04",
+      "expectPureSine": false,
       "instrument": 64,
       "startSeconds": 360,
       "slotSeconds": 4
@@ -717,6 +781,7 @@
       "value": 5,
       "valueHex": "05",
       "label": "OP A shape = 05",
+      "expectPureSine": false,
       "instrument": 65,
       "startSeconds": 364,
       "slotSeconds": 4
@@ -728,6 +793,7 @@
       "value": 6,
       "valueHex": "06",
       "label": "OP A shape = 06",
+      "expectPureSine": false,
       "instrument": 66,
       "startSeconds": 368,
       "slotSeconds": 4
@@ -739,6 +805,7 @@
       "value": 7,
       "valueHex": "07",
       "label": "OP A shape = 07",
+      "expectPureSine": false,
       "instrument": 67,
       "startSeconds": 372,
       "slotSeconds": 4
@@ -750,6 +817,7 @@
       "value": 8,
       "valueHex": "08",
       "label": "OP A shape = 08",
+      "expectPureSine": false,
       "instrument": 68,
       "startSeconds": 376,
       "slotSeconds": 4
@@ -761,6 +829,7 @@
       "value": 9,
       "valueHex": "09",
       "label": "OP A shape = 09",
+      "expectPureSine": false,
       "instrument": 69,
       "startSeconds": 380,
       "slotSeconds": 4
@@ -772,6 +841,7 @@
       "value": 10,
       "valueHex": "0A",
       "label": "OP A shape = 0A",
+      "expectPureSine": false,
       "instrument": 70,
       "startSeconds": 384,
       "slotSeconds": 4
@@ -783,6 +853,7 @@
       "value": 11,
       "valueHex": "0B",
       "label": "OP A shape = 0B",
+      "expectPureSine": false,
       "instrument": 71,
       "startSeconds": 388,
       "slotSeconds": 4
@@ -794,6 +865,7 @@
       "value": 12,
       "valueHex": "0C",
       "label": "OP A shape = 0C",
+      "expectPureSine": false,
       "instrument": 72,
       "startSeconds": 392,
       "slotSeconds": 4
@@ -805,6 +877,7 @@
       "value": 13,
       "valueHex": "0D",
       "label": "OP A shape = 0D",
+      "expectPureSine": false,
       "instrument": 73,
       "startSeconds": 396,
       "slotSeconds": 4
@@ -816,6 +889,7 @@
       "value": 14,
       "valueHex": "0E",
       "label": "OP A shape = 0E",
+      "expectPureSine": false,
       "instrument": 74,
       "startSeconds": 400,
       "slotSeconds": 4
@@ -827,6 +901,7 @@
       "value": 15,
       "valueHex": "0F",
       "label": "OP A shape = 0F",
+      "expectPureSine": false,
       "instrument": 75,
       "startSeconds": 404,
       "slotSeconds": 4
@@ -838,6 +913,7 @@
       "value": 64,
       "valueHex": "40",
       "label": "LFO1 FRQ = 40",
+      "expectPureSine": false,
       "instrument": 76,
       "startSeconds": 408,
       "slotSeconds": 8
@@ -849,6 +925,7 @@
       "value": 96,
       "valueHex": "60",
       "label": "LFO1 FRQ = 60",
+      "expectPureSine": false,
       "instrument": 77,
       "startSeconds": 416,
       "slotSeconds": 8
@@ -860,6 +937,7 @@
       "value": 128,
       "valueHex": "80",
       "label": "LFO1 FRQ = 80",
+      "expectPureSine": false,
       "instrument": 78,
       "startSeconds": 424,
       "slotSeconds": 8
@@ -871,6 +949,7 @@
       "value": 152,
       "valueHex": "98",
       "label": "LFO1 FRQ = 98",
+      "expectPureSine": false,
       "instrument": 79,
       "startSeconds": 432,
       "slotSeconds": 8
@@ -882,6 +961,7 @@
       "value": 176,
       "valueHex": "B0",
       "label": "LFO1 FRQ = B0",
+      "expectPureSine": false,
       "instrument": 80,
       "startSeconds": 440,
       "slotSeconds": 8
@@ -893,6 +973,7 @@
       "value": 200,
       "valueHex": "C8",
       "label": "LFO1 FRQ = C8",
+      "expectPureSine": false,
       "instrument": 81,
       "startSeconds": 448,
       "slotSeconds": 8
@@ -904,6 +985,7 @@
       "value": 224,
       "valueHex": "E0",
       "label": "LFO1 FRQ = E0",
+      "expectPureSine": false,
       "instrument": 82,
       "startSeconds": 456,
       "slotSeconds": 8
@@ -915,6 +997,7 @@
       "value": 240,
       "valueHex": "F0",
       "label": "LFO1 FRQ = F0",
+      "expectPureSine": false,
       "instrument": 83,
       "startSeconds": 464,
       "slotSeconds": 8
@@ -926,6 +1009,7 @@
       "value": 255,
       "valueHex": "FF",
       "label": "LFO1 FRQ = FF",
+      "expectPureSine": false,
       "instrument": 84,
       "startSeconds": 472,
       "slotSeconds": 8

@@ -45,23 +45,43 @@ export interface CalibrationTest {
   fixes: string;
   /** How many 16-step phrases each measurement needs. */
   phrases: number;
+  /**
+   * True when every step of this sweep produces an unmodulated sine, so a crest
+   * factor below 1.41 means something in the chain flattened it. A square wave
+   * is legitimately 1.00 and an FM tone legitimately lower, so the check is
+   * meaningless anywhere else.
+   */
+  expectPureSine: boolean;
   /** The starting point every sweep value is stamped into. */
   patch: M8Patch;
   apply: (patch: M8Patch, value: number) => void;
 }
 
 /**
- * A patch that does as little as possible: one sine carrier at unity ratio, full
- * instrument volume, no envelopes, no filter, no effects. A note sounds at a
- * steady level for as long as it is held, which is what makes the spectrum
- * readable, and the sequencer cuts it by triggering a silent instrument.
+ * Headroom for every operator that is not itself being swept.
+ *
+ * Measured: a plain sine at LEV C0 comes out with a crest factor of 1.41, and at
+ * E0 and FF it flattens to 1.13 and 1.06 -- the operator output is clipping
+ * before it reaches the filter, so no amount of turning the recording level down
+ * would have helped. Anything measured from a clipped waveform's spectrum is
+ * worthless, so the calibration instruments sit a comfortable margin below that
+ * ceiling and the recording level is not something the person recording has to
+ * think about.
+ */
+export const CALIBRATION_LEVEL = 0xa0;
+
+/**
+ * A patch that does as little as possible: one sine carrier at unity ratio, no
+ * envelopes, no filter, no effects. A note sounds at a steady level for as long
+ * as it is held, which is what makes the spectrum readable, and the sequencer
+ * cuts it by triggering a silent instrument.
  */
 export function bareTone(name: string): M8Patch {
   const patch = createDefaultPatch();
   patch.name = name;
   patch.algo = 0x0b; // A+B+C+D, so operator A reaches the output on its own
   patch.volume = 0xff;
-  patch.operators[0] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xff, feedback: 0x00, modA: 0x00, modB: 0x00 };
+  patch.operators[0] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: CALIBRATION_LEVEL, feedback: 0x00, modA: 0x00, modB: 0x00 };
   patch.filter = { type: FILTER_OFF, cutoff: 0xff, res: 0x00 };
   patch.envelopes.forEach((env) => {
     env.dest = DEST_OFF;
@@ -108,6 +128,7 @@ export function calibrationTests(): CalibrationTest[] {
       + 'carrier means the recorded waveform IS the envelope, so the timing and '
       + 'the curve shape both fall straight out of it.',
     phrases: 4, // long decays need room to finish before the next note
+    expectPureSine: true,
     patch: envelopeBase,
     apply: (patch, value) => {
       patch.envelopes[0].decay = value;
@@ -118,7 +139,7 @@ export function calibrationTests(): CalibrationTest[] {
   const index = bareTone('CAL2 INDEX');
   index.algo = 0x07; // [A>B]+[C>D], so A modulates B and nothing else sounds
   index.operators[0] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x00, feedback: 0x00, modA: 0x00, modB: 0x00 };
-  index.operators[1] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xff, feedback: 0x00, modA: 0x00, modB: 0x00 };
+  index.operators[1] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: CALIBRATION_LEVEL, feedback: 0x00, modA: 0x00, modB: 0x00 };
   tests.push({
     id: 'CAL2-INDEX',
     measures: 'operator LEVEL -> modulation depth',
@@ -129,6 +150,7 @@ export function calibrationTests(): CalibrationTest[] {
       + 'modulation index, so the index is solvable exactly from the recording. '
       + 'This is the single biggest influence on FM timbre.',
     phrases: 1,
+    expectPureSine: false,
     patch: index,
     apply: (patch, value) => {
       patch.operators[0].level = value;
@@ -144,6 +166,7 @@ export function calibrationTests(): CalibrationTest[] {
     fixes: 'levelToAmplitude(). Currently assumed linear. The same operator with '
       + 'nothing modulating it, so only its own level affects the result.',
     phrases: 1,
+    expectPureSine: true,
     patch: bareTone('CAL3 GAIN'),
     apply: (patch, value) => {
       patch.operators[0].level = value;
@@ -163,6 +186,7 @@ export function calibrationTests(): CalibrationTest[] {
       + 'harmonic series, so the corner frequency and the roll-off read straight '
       + 'off the spectrum.',
     phrases: 1,
+    expectPureSine: false,
     patch: cutoff,
     apply: (patch, value) => {
       patch.filter.cutoff = value;
@@ -181,6 +205,7 @@ export function calibrationTests(): CalibrationTest[] {
     fixes: 'the resonance term in SvFilter. Cutoff is parked at 80 so only RES '
       + 'changes.',
     phrases: 1,
+    expectPureSine: false,
     patch: resonance,
     apply: (patch, value) => {
       patch.filter.res = value;
@@ -201,6 +226,7 @@ export function calibrationTests(): CalibrationTest[] {
       + 'is what this app assumes; anything else means the two-level modulation '
       + 'matrix is modelled wrongly, which affects every patch using a MOD slot.',
     phrases: 1,
+    expectPureSine: true,
     patch: modBus,
     apply: (patch, value) => {
       patch.mods[0] = value;
@@ -217,6 +243,7 @@ export function calibrationTests(): CalibrationTest[] {
       + 'feedback depth, and the point where it breaks up locates the top of the '
       + 'range.',
     phrases: 1,
+    expectPureSine: false,
     patch: bareTone('CAL7 FBK'),
     apply: (patch, value) => {
       patch.operators[0].feedback = value;
@@ -234,6 +261,7 @@ export function calibrationTests(): CalibrationTest[] {
       + 'One steady note per shape gives the harmonic series of each, which is '
       + 'enough to reproduce them properly.',
     phrases: 1,
+    expectPureSine: false,
     patch: bareTone('CAL8 SHAPE'),
     apply: (patch, value) => {
       patch.operators[0].shape = value;
@@ -256,6 +284,7 @@ export function calibrationTests(): CalibrationTest[] {
     fixes: 'lfoFreqHz(). The tremolo rate is directly countable from the recorded '
       + 'amplitude envelope.',
     phrases: 2, // slow rates need a couple of cycles to be countable
+    expectPureSine: false,
     patch: lfo,
     apply: (patch, value) => {
       patch.lfos[0].freq = value;
@@ -272,6 +301,7 @@ export interface SweepPoint {
   value: number;
   label: string;
   phrases: number;
+  expectPureSine: boolean;
   patch: M8Patch;
 }
 
@@ -288,6 +318,7 @@ export function calibrationSweep(tests = calibrationTests()): SweepPoint[] {
         value,
         label: `${test.parameter} = ${hex(value)}`,
         phrases: test.phrases,
+        expectPureSine: test.expectPureSine,
         patch
       });
     }
