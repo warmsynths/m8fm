@@ -74,19 +74,24 @@ piano — stacking extra carriers on one modulator gives an organ instead (see t
 warning below).
 
 - **Algorithm**: `07 [A>B] + [C>D]`
-- **Op A (Tine Modulator)**: `SIN`, `RATIO 07.00`–`14.00`, `LEV 18`, `FB 00`, `MOD 2▸LEV`
-- **Op B (Tine Carrier)**: `SIN`, `RATIO 01.00`, `LEV 20`, `FB 00`, `MOD 2▸LEV`
-- **Op C (Body Modulator)**: `SIN`, `RATIO 01.00`, `LEV 40`, `FB 00`, `MOD -----`
+- **Op A (Tine Modulator)**: `SIN`, `RATIO 07.00`–`14.00`, `LEV B8`, `FB 00`, `MOD 2▸LEV`
+- **Op B (Tine Carrier)**: `SIN`, `RATIO 01.00`, `LEV 90`, `FB 00`, `MOD 2▸LEV`
+- **Op C (Body Modulator)**: `SIN`, `RATIO 01.00`, `LEV 60`, `FB 00`, `MOD -----`
 - **Op D (Body Carrier)**: `SIN`, `RATIO 01.00`, `LEV C0`, `FB 00`, `MOD -----`
-- **MOD 2**: `00` (the strike envelope supplies the whole bus)
-- **Env 1**: `DEST: VOLUME`, `AMT: FF`, `ATTACK: 00`, `HOLD: 00`, `DECAY: 9A` (note decay)
-- **Env 2**: `DEST: MOD 2`, `AMT: 70`, `ATTACK: 00`, `HOLD: 00`, `DECAY: 48` (the strike)
-- **LFO 1**: `DEST: VOLUME`, `TYPE: TRI`, `FREQ: C8`, `AMT: 30` (Master Tremolo)
-- **Filter**: `LOWPASS`, `CUT D4`, `RES 10`. **Mixer**: `CHO A0`
+- **MOD 1-4**: all `00` — the strike envelope supplies the whole of MOD 2
+- **Env 1**: `DEST: VOLUME`, `AMT: FF`, `ATTACK: 00`, `HOLD: 00`, `DECAY: 90` (~3.0 s note)
+- **Env 2**: `DEST: MOD 2`, `AMT: FF`, `ATTACK: 00`, `HOLD: 00`, `DECAY: 22` (~0.7 s strike)
+- **LFO 1**: `DEST: VOLUME`, `TYPE: TRI`, `FREQ: C3`, `AMT: 22` (Master Tremolo)
+- **Filter**: `LOWPASS`, `CUT D8`, `RES 10`. **Mixer**: `CHO A0`
 
-Both tine operators sit on `MOD 2`, so the strike loses brightness *and* level
-together and settles into a thin sine that reinforces the fundamental. Put only
-the modulator on the bus and the tine carrier rings on at fixed volume forever.
+Both tine operators sit on `MOD 2`, and that bus rests at `00`. Because a MOD bus
+*scales* what it is wired to (section 7), the whole tine pair is silent between
+notes and swells in with the strike — the `LEV` values above are its brightness
+and level at the peak of the strike, not standing amounts. `ENV 2`'s `AMT` is
+`FF` so the bus sweeps its whole range.
+
+Put only the modulator on the bus and the tine carrier rings on at fixed volume
+forever; leave the bus resting above zero and the tine never goes away.
 
 **Tuning notes**:
 - Raising `RATIO A` moves the strike up the harmonic series: `07.00` is woody,
@@ -140,12 +145,67 @@ There are two valid ways to give a patch an amplitude envelope:
    should be enveloped has to subscribe to the bus — a carrier left on `-----`
    keeps sounding at its fixed `LEVEL` forever.
 
-Recipe 5A above uses the second form. If you copy it, do not skip the `1▸LEV` on
-the carriers.
+Recipe 5A uses the first form for the note itself, and a second envelope on a
+MOD bus for the strike on top of it.
 
 ---
 
-## 7. Web Audio vs Hardware Implementation Gotchas
+## 7. Measured Hardware Behaviour
+
+These were measured off a real M8 playing `calibration/M8FM-CALIBRATION.m8s`.
+`tools/fit-hardware-curves.mjs` reproduces the fits from a recording.
+
+### Envelope decay is exponential, and linear in the parameter
+
+The AHD decay is a pure exponential whose rate is inversely proportional to the
+`DEC` value:
+
+    rate = 2888 / DEC   decibels per second
+
+That product held constant to 0.1% from `DEC 10` to `DEC FF`. Rearranged, the
+time to fall 60 dB is simply proportional:
+
+    T60 = DEC x 20.8 ms
+
+So `DEC 30` is about a second, `DEC 60` about two, and `DEC FF` about 5.3.
+Doubling `DEC` doubles the time. No polynomial fits this -- trying to fit
+`(1 - t/T)^p` just pushes `p` to whatever ceiling the search allows, which is the
+signature of approximating an exponential with a power curve.
+
+### A MOD bus SCALES its destination, it does not add to it
+
+With operator A at `LEV 40` and `MOD A` set to `1▸LEV`, sweeping `MOD1` through
+`00/40/80/C0/FF` produced 0, 1/4, 2/4, 3/4 and 4/4 of the level that `LEV 40`
+gives on its own.
+
+**An operator whose MOD bus rests at zero is silent, however high its own LEVEL
+is set.** An operator's `LEVEL` is therefore its value *at full bus*, not a
+standing amount the bus adds to.
+
+This is the single most important thing to get right when a patch uses MOD
+slots. Under the additive reading, a patch whose bus rests at zero sounds
+perfectly normal; on the device it is silent. To use a bus as a swell, leave the
+`MOD n` amount at `00` and let an envelope drive it; to use an LFO on a bus, park
+the `MOD n` amount mid-range so the LFO has somewhere to swing in both
+directions.
+
+### Carrier level is linear
+
+Peak output was proportional to `LEV` from `00` to `80`, with a crest factor of
+1.414 throughout, confirming a clean sine. Above that the recording's own chain
+limited, so the top of that range has not been measured cleanly.
+
+### Still unmeasured
+
+Modulation index, feedback depth, LFO rate and the `SW2`-`SW6` waveforms all sit
+at `LEV FF` in the calibration instruments, and that was hot enough to be
+limited in the recording, so their spectra are not trustworthy yet. They need a
+re-record with more headroom; the analyser now flags flattened peaks so it
+cannot happen silently again.
+
+---
+
+## 8. Web Audio vs Hardware Implementation Gotchas
 
 1. **Linear FM vs Phase Modulation**: Standard Web Audio `Oscillator.frequency`
    modulation is linear Hz Frequency Modulation, and it is not a workable

@@ -215,7 +215,18 @@ function oscillator(shape, p, noiseState) {
   }
 }
 
-/** AHD envelope. Attacks to 1, holds, then decays back to 0 (exponent 8 to match M8 hardware). */
+/**
+ * AHD envelope: attacks to 1, holds, then decays.
+ *
+ * The decay is a true exponential, because that is what the hardware does --
+ * measured at a constant 2888/DEC dB per second across the whole range. `decay`
+ * arrives as the time to fall 60 dB, so the curve is 10^(-3x) over that span and
+ * is cut to exactly zero at the end so a voice can be retired.
+ *
+ * No polynomial reproduces this. Fitting (1-t/T)^p to the recording pushed p to
+ * whatever ceiling the search allowed, which is the signature of trying to
+ * approximate an exponential with a power curve.
+ */
 function ahdValue(t, attack, hold, decay) {
   if (t <= 0) return 0;
   if (t < attack) return t / attack;
@@ -224,10 +235,7 @@ function ahdValue(t, attack, hold, decay) {
   const afterHold = afterAttack - hold;
   if (decay <= 0) return 0;
   if (afterHold >= decay) return 0;
-  const x = 1 - afterHold / decay;
-  const x2 = x * x;
-  const x4 = x2 * x2;
-  return x4 * x4;
+  return Math.pow(10, (-3 * afterHold) / decay);
 }
 
 /** Total time an AHD envelope takes to return to zero. */
@@ -521,7 +529,12 @@ class M8FmRenderer {
     for (let k = 0; k < 4; k++) {
       const op = spec.ops[k];
 
-      let levelAdd = 0;
+      // A MOD bus aimed at LEV *scales* the operator's level rather than adding
+      // to it -- measured on hardware, and a large difference: an operator whose
+      // bus rests at zero is silent, however high its own LEVEL is set.
+      // The other destinations were not part of the calibration sweep, so they
+      // stay additive until there is a measurement to say otherwise.
+      let levelScale = 1;
       let ratioMod = 0;
       let pitchMod = 0;
       let feedbackAdd = 0;
@@ -529,7 +542,7 @@ class M8FmRenderer {
         const slot = op.slots[s];
         const busValue = buses[slot.bus - 1];
         switch (slot.target) {
-          case MOD_TARGET_LEV: levelAdd += busValue; break;
+          case MOD_TARGET_LEV: levelScale *= clamp(busValue, 0, 1); break;
           case MOD_TARGET_RAT: ratioMod += busValue; break;
           case MOD_TARGET_PIT: pitchMod += busValue; break;
           case MOD_TARGET_FBK: feedbackAdd += busValue; break;
@@ -537,7 +550,7 @@ class M8FmRenderer {
         }
       }
 
-      const level = clamp(op.level + levelAdd, 0, 1);
+      const level = clamp(op.level * levelScale, 0, 1);
       const ratio = Math.max(0, op.ratio * (1 + ratioMod * 4));
       const semis = pitchMod * 24;
       const freq = voice.baseFreq * pitchScale * ratio * (semis === 0 ? 1 : Math.pow(2, semis / 12));

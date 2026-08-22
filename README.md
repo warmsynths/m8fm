@@ -28,27 +28,31 @@ Electric Piano against it field by field:
 M8FM_REFERENCE_M8I="/path/to/E PIANO07.m8i" npm test
 ```
 
-That checks the *parameters* match. Matching the *sound* is a separate problem:
+That checks the *parameters* match. The *sound* matching is a separate problem:
 Dirtywave does not publish how a raw `00`-`FF` value becomes seconds, hertz or
-modulation depth, so every one of those curves in `src/audio/M8Patch.ts` is
-currently an educated guess.
+modulation depth, so those curves have to be measured.
 
-`calibration/` holds the means to measure them off real hardware. Each test
-isolates a single unknown — a musical patch is affected by all of them at once
-and so cannot settle any of them.
-
-`M8FM-CALIBRATION.m8s` plays the whole sweep by itself: every measurement point
-is its own instrument, so nothing needs adjusting while it runs. Load it, record
-the line out, press play, and about eight minutes later:
+`calibration/M8FM-CALIBRATION.m8s` plays a sweep that measures them — every
+measurement point is its own instrument, so recording it means loading the song,
+recording the line out and pressing play. Then:
 
 ```
-node tools/analyze-recording.mjs your-take.wav
+node tools/analyze-recording.mjs your-take.wav     # labelled measurements
+node tools/fit-hardware-curves.mjs your-take.wav   # the curves themselves
 ```
 
-It picks up `manifest.json`, cuts the recording into the measurements the song
-describes, and labels each with the parameter and value it belongs to, reporting
-level, pitch, decay times, fitted decay curve and harmonic series. See
-`calibration/README.md`.
+Two things have been measured off hardware so far, and both are now what the app
+does:
+
+- **Envelope decay** is a pure exponential at `2888/DEC` dB per second, so the
+  time to fall 60 dB is `DEC x 20.8 ms`. Doubling `DEC` doubles the time.
+- **A MOD bus scales what it is wired to, rather than adding to it.** An
+  operator whose bus rests at zero is silent however high its own `LEVEL` is.
+
+Modulation index, feedback, LFO rate and the `SW2`-`SW6` waveforms are still
+estimates: those calibration instruments sit at `LEV FF`, which was loud enough
+to be limited in the recording. The analyser now flags flattened peaks, so a
+re-take with more headroom will say so rather than quietly producing bad numbers.
 
 ## Technology Stack
 

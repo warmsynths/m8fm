@@ -224,49 +224,78 @@ export function multiplierToRatio(mult: number): { ratio: number; ratioFine: num
 /* ------------------------------------------------------------------------- *
  * Unit conversions
  *
- * Dirtywave does not publish the curves behind the M8's 0x00-0xFF parameters,
- * so these are approximations. They are deliberately all in one place and named
- * so they can be recalibrated against hardware without touching anything else.
- * What matters for correctness of this app is that every consumer of a patch
- * goes through the *same* function, so the UI, the .m8i export and the audio
- * preview can never disagree about what a value means.
+ * These decide what a raw M8 value means. Everything -- the UI, the .m8i export
+ * and the audio preview -- goes through the same functions, so a value cannot
+ * mean one thing on screen and another in the file.
+ *
+ * Where a curve is marked MEASURED it was fitted from a recording of real
+ * hardware playing calibration/M8FM-CALIBRATION.m8s; see
+ * tools/fit-hardware-curves.mjs, which reproduces the fits. The rest are still
+ * estimates, and are marked as such.
  * ------------------------------------------------------------------------- */
 
-/** Longest AHD attack, in seconds, at ATK 0xFF. */
-const ATTACK_MAX_SECONDS = 4.0;
-/** Longest AHD hold/decay, in seconds, at 0xFF. */
-const AHD_MAX_SECONDS = 10.0;
+/**
+ * MEASURED. The M8's AHD decay is a pure exponential, and its rate is inversely
+ * proportional to the DEC value:
+ *
+ *     rate = 2888 / DEC  decibels per second
+ *
+ * That product held constant to 0.1% across the whole range (DEC 0x10 to 0xFF),
+ * which is about as clean as a fit gets. Rearranged, the time to fall 60 dB --
+ * far enough below the peak to count as gone -- is simply proportional to DEC.
+ *
+ * This replaced a cubic curve that was wrong at both ends: it made short decays
+ * far too short (DEC 0x10 came out at 2 ms against the real 0.33 s) and long
+ * ones too long.
+ */
+const DECAY_DB_PER_SECOND_NUMERATOR = 2888;
+/** Seconds of 60 dB decay per unit of DEC. */
+export const DECAY_SECONDS_PER_UNIT = 60 / DECAY_DB_PER_SECOND_NUMERATOR;
 
 /**
- * M8 envelope times are far from linear: the bottom of the range is packed with
- * short percussive times and the top stretches out to many seconds. A cubic
- * curve fits that feel well (DEC 0x40 ~ 160ms, DEC 0x80 ~ 1.3s, DEC 0xFF = max).
+ * Time for an envelope to fall 60 dB, which is where this engine treats a note
+ * as finished.
  */
-function ahdCurve(v: number, maxSeconds: number): number {
-  const x = clampByte(v) / 255;
-  return maxSeconds * x * x * x;
+export function envDecaySeconds(v: number): number {
+  return clampByte(v) * DECAY_SECONDS_PER_UNIT;
 }
 
+export function secondsToEnvDecay(seconds: number): number {
+  return clampByte(Math.max(0, seconds) / DECAY_SECONDS_PER_UNIT);
+}
+
+/**
+ * ESTIMATE. Attack and hold were not part of the calibration sweep, so they are
+ * assumed to share the decay's linear scaling. That is a guess, but a far safer
+ * one than the old cubic, which is now known to be the wrong shape for the one
+ * time parameter that was measured.
+ */
 export function envAttackSeconds(v: number): number {
-  return ahdCurve(v, ATTACK_MAX_SECONDS);
+  return clampByte(v) * DECAY_SECONDS_PER_UNIT;
 }
 
 export function envHoldSeconds(v: number): number {
-  return ahdCurve(v, AHD_MAX_SECONDS);
-}
-
-export function envDecaySeconds(v: number): number {
-  return ahdCurve(v, AHD_MAX_SECONDS);
-}
-
-/** Inverse of the AHD curve, for turning a desired time back into a raw value. */
-export function secondsToEnvDecay(seconds: number): number {
-  return clampByte(255 * Math.cbrt(Math.max(0, seconds) / AHD_MAX_SECONDS));
+  return clampByte(v) * DECAY_SECONDS_PER_UNIT;
 }
 
 export function secondsToEnvAttack(seconds: number): number {
-  return clampByte(255 * Math.cbrt(Math.max(0, seconds) / ATTACK_MAX_SECONDS));
+  return secondsToEnvDecay(seconds);
 }
+
+/**
+ * MEASURED. A MOD bus *scales* the parameter it is wired to; it does not add to
+ * it.
+ *
+ * With operator A at LEV 40 and MOD A set to `1▸LEV`, sweeping MOD1 through
+ * 00/40/80/C0/FF gave output levels of 0, 1/4, 2/4, 3/4 and 4/4 of what LEV 40
+ * produces on its own -- so the operator is silent when its bus is at zero,
+ * whatever its own LEVEL says.
+ *
+ * This app previously assumed the bus was added to the level, which is a large
+ * difference in practice: a patch whose bus rests at zero sounds normal under
+ * the additive reading and is silent on the device.
+ */
+export const MOD_BUS_SCALES_LEVEL = true;
 
 const LFO_MIN_HZ = 0.05;
 const LFO_MAX_HZ = 20.0;

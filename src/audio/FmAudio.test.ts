@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { AnchorMacroConfig, MacroMapper } from './MacroMapper';
 import type { AnchorName } from './MacroMapper';
 import { MACHINES } from '../ui/MachineData';
-import { M8Serializer, compensate } from './M8Serializer';
+import { M8Serializer } from './M8Serializer';
 import { buildRenderSpec, noteToFrequency } from './FmEngine';
 import {
   DEST_MOD2,
@@ -10,6 +10,7 @@ import {
   M8_ALGO_ROUTING,
   decodeModSlot,
   encodeModSlot,
+  createDefaultPatch,
   envDecaySeconds,
   hex,
   modSlotToString,
@@ -239,6 +240,46 @@ describe('M8 patch model', () => {
     }
   });
 
+  it('matches the envelope decay law measured off hardware', () => {
+    // The M8's AHD decay is a pure exponential whose rate is inversely
+    // proportional to DEC: 2888/DEC dB per second, constant to 0.1% across the
+    // whole range. So the time to fall 60 dB is simply proportional to DEC.
+    // These are the numbers that make a patch decay the same in the app as it
+    // does on the device; see tools/fit-hardware-curves.mjs.
+    for (const [value, seconds] of [[0x10, 0.333], [0x40, 1.330], [0x80, 2.661], [0xff, 5.298]]) {
+      expect(envDecaySeconds(value), `DEC ${hex(value)}`).toBeCloseTo(seconds, 2);
+    }
+    expect(envDecaySeconds(0)).toBe(0);
+    // Proportional, so doubling DEC doubles the time.
+    expect(envDecaySeconds(0x80) / envDecaySeconds(0x40)).toBeCloseTo(2, 6);
+  });
+
+  it('scales an operator level by its MOD bus rather than adding to it', () => {
+    // Measured: an operator at LEV 40 wired to MOD 1 produced 0, 1/4, 2/4, 3/4
+    // and 4/4 of its level as MOD1 swept 00/40/80/C0/FF. An operator whose bus
+    // rests at zero is therefore silent, whatever its own LEVEL says -- the
+    // opposite of the additive reading this app used to assume, and the reason
+    // patches that sounded right in the app arrived silent on the device.
+    const patch = createDefaultPatch();
+    patch.algo = 0x0b;
+    patch.volume = 0xff;
+    patch.operators[0] = {
+      shape: 0, ratio: 1, ratioFine: 0, level: 0x40, feedback: 0,
+      modA: encodeModSlot(1, MOD_TARGET_LEV), modB: 0
+    };
+
+    const peaks = [0x00, 0x40, 0x80, 0xc0, 0xff].map((mod) => {
+      patch.mods = [mod, 0, 0, 0];
+      return render(patch, 0.6, 0.6).peak;
+    });
+
+    expect(peaks[0], 'bus at zero must be silent').toBeLessThan(1e-4);
+    const full = peaks[peaks.length - 1];
+    [0.25, 0.5, 0.75].forEach((expected, i) => {
+      expect(peaks[i + 1] / full, `MOD1 step ${i + 1}`).toBeCloseTo(expected, 2);
+    });
+  });
+
   it('keeps envelope times monotonic across the parameter range', () => {
     let previous = -1;
     for (let v = 0; v <= 255; v += 5) {
@@ -343,7 +384,7 @@ describe('audio rendering', () => {
     const strike = brightness(result, f0, 4, 0.004, 2048);
     const body = brightness(result, f0, 4, 0.7);
 
-    expect(strike, 'the tine should be audible').toBeGreaterThan(0.01);
+    expect(strike, 'the tine should be audible').toBeGreaterThan(0.05);
     expect(body, 'the body should be close to a sine').toBeLessThan(0.02);
     expect(strike).toBeGreaterThan(body * 5);
   });
@@ -388,9 +429,9 @@ describe('audio rendering', () => {
 });
 
 describe('.m8i export', () => {
-  it('writes exactly the values the UI shows, with no conversion in between (uncompensated)', () => {
+  it('writes exactly the values the UI shows, with no conversion in between', () => {
     const patch = patchFor('Electric Piano');
-    const bytes = new M8Serializer().serializeFmInstrument(patch, { compensate: false });
+    const bytes = new M8Serializer().serializeFmInstrument(patch);
     const written = loadM8File(bytes).asObject();
 
     expect(written.kindStr).toBe('FMSYNTH');
@@ -439,16 +480,6 @@ describe('.m8i export', () => {
     expect(written.mixerParams.cho).toBe(patch.mixer.cho);
     expect(written.mixerParams.dry).toBe(patch.mixer.dry);
     expect(written.mixerParams.pan).toBe(patch.mixer.pan);
-  });
-
-  it('applies hardware calibration compensation by default', () => {
-    const patch = patchFor('Electric Piano');
-    const bytes = new M8Serializer().serializeFmInstrument(patch);
-    const written = loadM8File(bytes).asObject();
-
-    expect(written.kindStr).toBe('FMSYNTH');
-    expect(written.instrParams.operators[0].level).toBe(compensate('opLevelModulator', patch.operators[0].level));
-    expect(written.envelopes[0].decay).toBe(compensate('envDecay', patch.envelopes[0].decay));
   });
 
   it('exports every machine as a loadable FMSYNTH instrument', () => {

@@ -14,6 +14,8 @@ import {
   OSC_SIN,
   clampByte,
   clonePatch,
+  secondsToEnvAttack,
+  secondsToEnvDecay,
   createDefaultPatch,
   encodeModSlot,
   multiplierToRatio
@@ -108,17 +110,17 @@ export class MacroMapper {
     // difference between a bell and a clang.
     setRatio(patch, 0, 7 + Math.floor(this.macro('Tine Material') * 7));
 
-    // Strike force is how hard the tine is hit -- depth, ring time, and how
-    // much air the filter lets through.
+    // Strike force is how hard the tine is hit: how bright it peaks, how long
+    // it rings, and how much air the filter lets through.
     const strike = this.macro('Strike Force');
-    patch.envelopes[1].amount = lerpByte(0x50, 0x90, strike);
-    patch.envelopes[1].decay = lerpByte(0x38, 0x58, strike);
+    patch.operators[0].level = lerpByte(0x98, 0xd8, strike);
+    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.45), secondsToEnvDecay(0.95), strike);
     patch.filter.cutoff = lerpByte(0xc4, 0xec, strike);
 
     // Bark is the body pair's modulation index: the growl a Rhodes gets when
     // you dig into it, rather than more of the tine.
     const bark = this.macro('Bark');
-    patch.operators[2].level = lerpByte(0x20, 0x70, bark);
+    patch.operators[2].level = lerpByte(0x30, 0x90, bark);
 
     const tremolo = this.macro('Tremolo Depth');
     patch.lfos[0].amount = lerpByte(0x00, 0x60, tremolo);
@@ -136,11 +138,11 @@ export class MacroMapper {
 
     const snap = this.macro('Pitch Snap');
     patch.envelopes[1].amount = lerpByte(0x00, 0x40, snap);
-    patch.envelopes[1].decay = lerpByte(0x18, 0x40, snap);
+    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.05), secondsToEnvDecay(0.14), snap);
 
     const boom = this.macro('Boom');
-    patch.envelopes[0].hold = lerpByte(0x00, 0x50, boom);
-    patch.envelopes[0].decay = lerpByte(0x78, 0xc0, boom);
+    patch.envelopes[0].hold = lerpByte(0x00, secondsToEnvDecay(0.35), boom);
+    patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(1.6), secondsToEnvDecay(3.6), boom);
   }
 
   private applyMallet(patch: M8Patch) {
@@ -159,8 +161,8 @@ export class MacroMapper {
     }
 
     const dampening = this.macro('Dampening');
-    patch.envelopes[0].decay = lerpByte(0xa0, 0x48, dampening);
-    patch.envelopes[1].decay = lerpByte(0x50, 0x28, dampening);
+    patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(1.5), secondsToEnvDecay(0.35), dampening);
+    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.35), secondsToEnvDecay(0.12), dampening);
 
     const impact = this.macro('Impact Noise');
     patch.operators[2].level = lerpByte(0x10, 0x60, impact);
@@ -169,9 +171,9 @@ export class MacroMapper {
 
   private applyPad(patch: M8Patch) {
     const wash = this.macro('Wash');
-    patch.envelopes[0].attack = lerpByte(0x50, 0xb0, wash);
-    patch.envelopes[0].decay = lerpByte(0xa0, 0xe0, wash);
-    patch.envelopes[1].attack = lerpByte(0x60, 0xc0, wash);
+    patch.envelopes[0].attack = lerpByte(secondsToEnvAttack(0.5), secondsToEnvAttack(2.4), wash);
+    patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(3.0), secondsToEnvDecay(5.0), wash);
+    patch.envelopes[1].attack = lerpByte(secondsToEnvAttack(0.8), secondsToEnvAttack(3.0), wash);
 
     const shimmer = this.macro('Shimmer');
     setRatio(patch, 2, shimmer > 0.5 ? 8 : 4);
@@ -184,7 +186,7 @@ export class MacroMapper {
     // Hollow detunes the second carrier away from the first, thinning the core.
     const hollow = this.macro('Hollow');
     setRatio(patch, 3, 1 + hollow * 0.5);
-    patch.operators[1].level = lerpByte(0xc0, 0x90, hollow);
+    patch.operators[1].level = lerpByte(0xa4, 0x80, hollow);
   }
 
   private applyDigitalGlitch(patch: M8Patch) {
@@ -211,7 +213,7 @@ export class MacroMapper {
 
     const filterEnv = this.macro('Filter Envelope');
     patch.envelopes[1].amount = lerpByte(0x00, 0x70, filterEnv);
-    patch.envelopes[1].decay = lerpByte(0x60, 0xc0, filterEnv);
+    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.5), secondsToEnvDecay(2.0), filterEnv);
 
     const slop = this.macro('Analog Slop');
     patch.lfos[0].amount = lerpByte(0x00, 0x18, slop);
@@ -235,28 +237,27 @@ export class MacroMapper {
       case 'Electric Piano':
         patch.name = 'M8FM EP';
         // Two independent 2-operator pairs, which is how every good FM Rhodes
-        // is built: one pair makes the struck tine, the other makes the sustained
-        // body, and they are mixed rather than stacked. The previous version put
-        // three carriers at ratios 00.50, 01.00 and 01.50 -- relative to the
-        // sub-octave that is a 1:2:3 series, i.e. a Hammond drawbar
-        // registration, which is most of where the metallic edge came from.
+        // is built: one pair makes the struck tine, the other makes the
+        // sustained body, and they are mixed rather than stacked.
         patch.algo = 0x07; // [A>B]+[C>D]
+        // MOD 2 rests at zero and the strike envelope drives it. A MOD bus
+        // scales the level it is wired to, so the whole tine pair is silent
+        // between notes and swells in with the strike.
         patch.mods = [0x00, 0x00, 0x00, 0x00];
-        // Op A: the tine. High ratio, low standing level -- the brightness
-        // arrives with the ENV2 strike and leaves with it.
-        patch.operators[0] = { shape: OSC_SIN, ratio: 11, ratioFine: 0, level: 0x18, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
-        // Op B: the tine's carrier, on the same MOD bus, so the ping fades in
-        // level as well as in brightness and settles to a thin sine that
-        // reinforces the fundamental.
-        patch.operators[1] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x20, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
+        // Op A: the tine. Its LEVEL is the brightness at the peak of the
+        // strike, not a standing value.
+        patch.operators[0] = { shape: OSC_SIN, ratio: 11, ratioFine: 0, level: 0x88, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
+        // Op B: the tine's carrier, on the same bus, so the ping fades in
+        // level and in brightness together.
+        patch.operators[1] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x90, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
         // Op C: the body. A 1:1 modulator at a low index gives a warm spectrum
-        // that rolls off smoothly instead of a fixed set of high partials.
+        // that rolls off smoothly.
         patch.operators[2] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x40, feedback: 0x00, modA: 0x00, modB: 0x00 };
         // Op D: the body's carrier, and the note you actually hear.
         patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xc0, feedback: 0x00, modA: 0x00, modB: 0x00 };
-        patch.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: 0x9a, dest: DEST_VOLUME, retrigger: 0x00 };
-        // The strike: a short swell on MOD 2, which the whole tine pair rides.
-        patch.envelopes[1] = { amount: 0x70, attack: 0x00, hold: 0x00, decay: 0x48, dest: DEST_MOD2, retrigger: 0x00 };
+        patch.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(3.0), dest: DEST_VOLUME, retrigger: 0x00 };
+        // The strike. AMOUNT is full so the bus sweeps its whole range.
+        patch.envelopes[1] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(0.65), dest: DEST_MOD2, retrigger: 0x00 };
         patch.lfos[0] = { amount: 0x30, shape: LFO_TRI, trigger: 0x00, freq: 0xc8, dest: DEST_VOLUME };
         patch.filter = { type: FILTER_LOWPASS, cutoff: 0xd4, res: 0x10 };
         patch.mixer.cho = 0xa0;
@@ -270,8 +271,8 @@ export class MacroMapper {
         // Op C silenced so Op D stays a clean sine sub.
         patch.operators[2] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x00, feedback: 0x00, modA: 0x00, modB: 0x00 };
         patch.operators[3] = { shape: OSC_SIN, ratio: 0, ratioFine: 50, level: 0xd0, feedback: 0x00, modA: 0x00, modB: 0x00 };
-        patch.envelopes[0] = { amount: 0xff, attack: 0x04, hold: 0x20, decay: 0xa0, dest: DEST_VOLUME, retrigger: 0x00 };
-        patch.envelopes[1] = { amount: 0x20, attack: 0x00, hold: 0x00, decay: 0x28, dest: DEST_PITCH, retrigger: 0x00 };
+        patch.envelopes[0] = { amount: 0xff, attack: 0x02, hold: secondsToEnvDecay(0.15), decay: secondsToEnvDecay(2.5), dest: DEST_VOLUME, retrigger: 0x00 };
+        patch.envelopes[1] = { amount: 0x20, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(0.09), dest: DEST_PITCH, retrigger: 0x00 };
         patch.filter = { type: FILTER_LOWPASS, cutoff: 0x98, res: 0x30 };
         break;
 
@@ -282,8 +283,8 @@ export class MacroMapper {
         patch.operators[1] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xc0, feedback: 0x00, modA: 0x00, modB: 0x00 };
         patch.operators[2] = { shape: OSC_SIN, ratio: 9, ratioFine: 0, level: 0x30, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
         patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x60, feedback: 0x00, modA: 0x00, modB: 0x00 };
-        patch.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: 0x88, dest: DEST_VOLUME, retrigger: 0x00 };
-        patch.envelopes[1] = { amount: 0x70, attack: 0x00, hold: 0x00, decay: 0x38, dest: DEST_MOD2, retrigger: 0x00 };
+        patch.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(0.9), dest: DEST_VOLUME, retrigger: 0x00 };
+        patch.envelopes[1] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(0.25), dest: DEST_MOD2, retrigger: 0x00 };
         patch.filter = { type: FILTER_LOWPASS, cutoff: 0xd8, res: 0x18 };
         patch.mixer.cho = 0x40;
         break;
@@ -292,12 +293,12 @@ export class MacroMapper {
         patch.name = 'M8FM PAD';
         patch.algo = 0x07; // [A>B]+[C>D]
         patch.operators[0] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x38, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
-        patch.operators[1] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xc0, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.operators[1] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xa4, feedback: 0x00, modA: 0x00, modB: 0x00 };
         patch.operators[2] = { shape: OSC_SIN, ratio: 4, ratioFine: 0, level: 0x30, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
         // Detuned against Op B, which is where the width comes from.
-        patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 1, level: 0xb0, feedback: 0x00, modA: 0x00, modB: 0x00 };
-        patch.envelopes[0] = { amount: 0xff, attack: 0x80, hold: 0x50, decay: 0xc8, dest: DEST_VOLUME, retrigger: 0x00 };
-        patch.envelopes[1] = { amount: 0x50, attack: 0xa0, hold: 0x00, decay: 0xc0, dest: DEST_MOD2, retrigger: 0x00 };
+        patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 1, level: 0x94, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.envelopes[0] = { amount: 0xff, attack: secondsToEnvAttack(0.9), hold: secondsToEnvDecay(0.8), decay: secondsToEnvDecay(4.0), dest: DEST_VOLUME, retrigger: 0x00 };
+        patch.envelopes[1] = { amount: 0xff, attack: secondsToEnvAttack(1.4), hold: 0x00, decay: secondsToEnvDecay(3.5), dest: DEST_MOD2, retrigger: 0x00 };
         patch.lfos[0] = { amount: 0x08, shape: LFO_SIN, trigger: 0x00, freq: 0x60, dest: DEST_PITCH };
         patch.filter = { type: FILTER_LOWPASS, cutoff: 0xb8, res: 0x28 };
         patch.mixer.cho = 0xc0;
@@ -306,12 +307,16 @@ export class MacroMapper {
       case 'Digital Glitch':
         patch.name = 'M8FM GLT';
         patch.algo = 0x00; // A>B>C>D
+        // MOD 1 rests half open so LFO 2 can swing the operator's level both
+        // ways. A bus that scales rather than adds is silent at zero, so an
+        // LFO around a resting zero would only ever gate, never modulate.
+        patch.mods = [0x80, 0x00, 0x00, 0x00];
         patch.operators[0] = { shape: OSC_SIN, ratio: 7, ratioFine: 13, level: 0x90, feedback: 0x60, modA: busToLevel(1), modB: 0x00 };
         patch.operators[1] = { shape: OSC_SIN, ratio: 11, ratioFine: 0, level: 0x70, feedback: 0x00, modA: 0x00, modB: 0x00 };
         patch.operators[2] = { shape: OSC_SIN, ratio: 0, ratioFine: 50, level: 0x88, feedback: 0x00, modA: 0x00, modB: 0x00 };
         patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xe0, feedback: 0x00, modA: 0x00, modB: 0x00 };
-        patch.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: 0x68, dest: DEST_VOLUME, retrigger: 0x00 };
-        patch.envelopes[1] = { amount: 0x40, attack: 0x00, hold: 0x00, decay: 0x38, dest: DEST_PITCH, retrigger: 0x00 };
+        patch.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(0.7), dest: DEST_VOLUME, retrigger: 0x00 };
+        patch.envelopes[1] = { amount: 0x40, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(0.16), dest: DEST_PITCH, retrigger: 0x00 };
         patch.lfos[0] = { amount: 0x30, shape: LFO_SQU_DN, trigger: 0x01, freq: 0xe0, dest: DEST_PITCH };
         patch.lfos[1] = { amount: 0x40, shape: LFO_RAMP_DN, trigger: 0x00, freq: 0xd0, dest: DEST_MOD1 };
         patch.filter = { type: FILTER_OFF, cutoff: 0xff, res: 0x00 };
@@ -324,8 +329,8 @@ export class MacroMapper {
         patch.operators[1] = { shape: OSC_SIN, ratio: 2, ratioFine: 0, level: 0x30, feedback: 0x00, modA: 0x00, modB: 0x00 };
         patch.operators[2] = { shape: OSC_SIN, ratio: 3, ratioFine: 0, level: 0x18, feedback: 0x00, modA: 0x00, modB: 0x00 };
         patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xd0, feedback: 0x30, modA: 0x00, modB: 0x00 };
-        patch.envelopes[0] = { amount: 0xff, attack: 0x28, hold: 0x50, decay: 0xb8, dest: DEST_VOLUME, retrigger: 0x00 };
-        patch.envelopes[1] = { amount: 0x50, attack: 0x18, hold: 0x00, decay: 0xa0, dest: DEST_CUTOFF, retrigger: 0x00 };
+        patch.envelopes[0] = { amount: 0xff, attack: secondsToEnvAttack(0.04), hold: secondsToEnvDecay(0.5), decay: secondsToEnvDecay(3.5), dest: DEST_VOLUME, retrigger: 0x00 };
+        patch.envelopes[1] = { amount: 0x50, attack: secondsToEnvAttack(0.02), hold: 0x00, decay: secondsToEnvDecay(1.2), dest: DEST_CUTOFF, retrigger: 0x00 };
         patch.lfos[0] = { amount: 0x08, shape: LFO_TRI, trigger: 0x00, freq: 0xa8, dest: DEST_PITCH };
         patch.filter = { type: FILTER_LOWPASS, cutoff: 0xa0, res: 0x40 };
         break;

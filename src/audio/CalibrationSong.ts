@@ -86,7 +86,7 @@ export function buildCalibrationSong(points: SweepPoint[] = calibrationSweep()):
   // A flat groove: every step the same length, so timing is predictable.
   song.grooves[0].steps = Array.from({ length: STEPS_PER_PHRASE }, (_, i) => (i < 2 ? SONG_GROOVE : EMPTY));
 
-  song.instruments[SILENT_INSTRUMENT] = patchToFMSynth(silentInstrument(), { compensate: false });
+  song.instruments[SILENT_INSTRUMENT] = patchToFMSynth(silentInstrument());
 
   const notes: ManifestNote[] = [];
   const phrases: any[] = [];
@@ -94,7 +94,7 @@ export function buildCalibrationSong(points: SweepPoint[] = calibrationSweep()):
 
   points.forEach((point, i) => {
     const instrumentSlot = i + 1;
-    song.instruments[instrumentSlot] = patchToFMSynth(point.patch, { compensate: false });
+    song.instruments[instrumentSlot] = patchToFMSynth(point.patch);
 
     // One phrase carries the note; any further phrases are the gap that lets a
     // long decay finish before the next measurement begins.

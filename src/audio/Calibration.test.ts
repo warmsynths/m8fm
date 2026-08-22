@@ -6,7 +6,7 @@ import {
   SONG_TEMPO,
   buildCalibrationSong
 } from './CalibrationSong';
-import { M8Serializer, compensate } from './M8Serializer';
+import { M8Serializer } from './M8Serializer';
 import { DEST_OFF, clonePatch, envDecaySeconds, hex } from './M8Patch';
 import { buildRenderSpec, noteToFrequency } from './FmEngine';
 // @ts-ignore - plain JS worklet module
@@ -29,10 +29,10 @@ describe('calibration instruments', () => {
   const tests = calibrationTests();
   const sweep = calibrationSweep(tests);
 
-  it('round-trip through the .m8i writer unchanged (uncompensated)', () => {
+  it('round-trip through the .m8i writer unchanged', () => {
     const serializer = new M8Serializer();
     for (const point of sweep) {
-      const written = loadM8File(serializer.serializeFmInstrument(point.patch, { compensate: false })).asObject();
+      const written = loadM8File(serializer.serializeFmInstrument(point.patch)).asObject();
       expect(written.kindStr, point.label).toBe('FMSYNTH');
       expect(written.instrParams.algo, point.label).toBe(point.patch.algo);
       expect(written.volume, point.label).toBe(point.patch.volume);
@@ -372,57 +372,3 @@ describe('recording analysis', () => {
     expect(result.notes[0].peak).toBeCloseTo(0.5, 2);
   });
 });
-
-describe('hardware calibration compensation', () => {
-  const params = [
-    'envDecay',
-    'opLevelCarrier',
-    'opLevelModulator',
-    'opFeedback',
-    'filterCutoff',
-    'filterRes',
-    'lfoFreq',
-    'modBus'
-  ];
-
-  it('keeps all compensation curves strictly monotonic', () => {
-    for (const param of params) {
-      for (let v = 0; v < 255; v++) {
-        const c1 = compensate(param, v);
-        const c2 = compensate(param, v + 1);
-        expect(c2, `${param} not monotonic at ${v} -> ${v + 1}`).toBeGreaterThanOrEqual(c1);
-      }
-    }
-  });
-
-  it('clamps all output values between 0 and 255', () => {
-    for (const param of params) {
-      for (let v = 0; v <= 255; v++) {
-        const c = compensate(param, v);
-        expect(c, `${param} out of range at ${v}`).toBeGreaterThanOrEqual(0);
-        expect(c, `${param} out of range at ${v}`).toBeLessThanOrEqual(255);
-      }
-    }
-  });
-
-  it('anchors zero to zero for all parameter curves', () => {
-    for (const param of params) {
-      expect(compensate(param, 0), `${param} at zero`).toBe(0);
-    }
-  });
-
-  it('remaps carrier level differently from modulator level', () => {
-    const appLevel = 0x40; // 64
-    const carrierM8 = compensate('opLevelCarrier', appLevel);
-    const modulatorM8 = compensate('opLevelModulator', appLevel);
-    expect(carrierM8).not.toBe(modulatorM8);
-    expect(carrierM8).toBe(128);
-    expect(modulatorM8).toBe(72);
-  });
-
-  it('tames high feedback values to prevent chaotic breakup on M8', () => {
-    // App FB 0xFF is mapped to a musical ceiling on M8
-    expect(compensate('opFeedback', 0xff)).toBe(100);
-  });
-});
-

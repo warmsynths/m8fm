@@ -1,4 +1,4 @@
-// #!/usr/bin/env node
+#!/usr/bin/env node
 /**
  * Measures a recording of the M8 calibration song.
  *
@@ -409,8 +409,51 @@ const SNAP_TOLERANCE_SECONDS = 0.35;
  * Each slot is still snapped to a nearby onset when there is one, so a recording
  * that drifts against the M8's clock stays aligned.
  */
+/**
+ * Where the song starts within the recording.
+ *
+ * Not simply the first detected onset: a measurement is allowed to be silent or
+ * too quiet to trip the detector -- an app render whose first note is a 2 ms
+ * click did exactly that, and taking onset zero as the origin shifted every
+ * label by a whole slot. Instead every plausible offset is scored by how many
+ * measurements it lines an onset up with, and the best-supported one wins.
+ */
+function findOrigin(manifest, onsets) {
+  if (onsets.length === 0) return 0;
+
+  const tolerance = 0.1;
+  const candidates = new Set();
+  // The recording could start at any measurement, but in practice it is one of
+  // the first few, so only those need considering as "the note we can see".
+  for (const onset of onsets.slice(0, 12)) {
+    for (const entry of manifest.notes.slice(0, 12)) {
+      candidates.add(onset.startSeconds - (entry.startSeconds ?? 0));
+    }
+  }
+
+  let best = { origin: onsets[0].startSeconds, score: -1 };
+  for (const origin of candidates) {
+    let score = 0;
+    for (const entry of manifest.notes) {
+      const expected = origin + (entry.startSeconds ?? 0);
+      for (const onset of onsets) {
+        if (Math.abs(onset.startSeconds - expected) <= tolerance) {
+          score += 1;
+          break;
+        }
+      }
+    }
+    // Prefer the earliest origin among equally good fits, so a run of identical
+    // slots cannot pull the alignment later than it belongs.
+    if (score > best.score || (score === best.score && origin < best.origin)) {
+      best = { origin, score };
+    }
+  }
+  return best.origin;
+}
+
 function sliceByManifest(samples, sampleRate, manifest, onsets) {
-  const origin = onsets.length > 0 ? onsets[0].startSeconds : 0;
+  const origin = findOrigin(manifest, onsets);
   const totalSeconds = samples.length / sampleRate;
 
   return manifest.notes.map((entry) => {
@@ -474,7 +517,8 @@ function analyze(filePath, options = {}) {
         driftSeconds: note.driftSeconds ?? null,
         truncated: !!note.truncated,
         peak: +peak.toFixed(4),
-        peakDb: +(20 * Math.log10(Math.max(peak, 1e-9))).toFixed(1)
+        peakDb: +(20 * Math.log10(Math.max(peak, 1e-9))).toFixed(1),
+        crestFactor: null
       };
 
       // A measurement can legitimately be silent -- LEVEL 00 is supposed to make
@@ -491,6 +535,19 @@ function analyze(filePath, options = {}) {
           decayExponent: null,
           harmonicsDb: []
         };
+      }
+
+      // Crest factor over the steady part, as a limiter detector.
+      const steady = note.samples.slice(
+        Math.min(note.samples.length - 1, Math.round(0.3 * sampleRate)),
+        Math.min(note.samples.length, Math.round(1.4 * sampleRate))
+      );
+      if (steady.length > 1000) {
+        let s2 = 0;
+        let sp = 0;
+        for (const v of steady) { s2 += v * v; sp = Math.max(sp, Math.abs(v)); }
+        const rms = Math.sqrt(s2 / steady.length);
+        base.crestFactor = rms > 0 ? +(sp / rms).toFixed(2) : null;
       }
 
       const f0 = detectFundamental(note.samples, sampleRate);
@@ -578,6 +635,17 @@ function report(result) {
   if (clipped.length > 0) {
     lines.push(`  !! ${clipped.length} measurement(s) at full scale -- the recording is probably`);
     lines.push('     clipped. Drop the level and record again; a clipped tone measures nothing.');
+    lines.push('');
+  }
+
+  // A sine has a crest factor of 1.41. Anything much flatter has had its peaks
+  // squashed by a limiter somewhere in the chain, well before it reaches full
+  // scale -- which silently ruins any measurement made from its spectrum.
+  const squashed = sounded.filter((n) => n.crestFactor !== null && n.crestFactor < 1.25);
+  if (squashed.length > 0) {
+    lines.push(`  !! ${squashed.length} measurement(s) have flattened peaks (crest factor below`);
+    lines.push('     1.25, where a clean sine is 1.41). Something in the chain is limiting.');
+    lines.push('     Spectra from those rows cannot be trusted; re-record with more headroom.');
     lines.push('');
   }
 
