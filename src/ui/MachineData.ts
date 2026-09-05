@@ -165,7 +165,7 @@ export const MACHINES: Machine[] = [
         ];
       }]
     ],
-    presets: [['DRIFT', [58, 34, 51, 22]], ['CHOIR', [70, 60, 66, 14]], ['VOID', [40, 20, 30, 80]]]
+    presets: [['DRIFT', [58, 30, 65, 15]], ['CHOIR', [72, 58, 70, 50]], ['VOID', [45, 20, 35, 85]]]
   },
 
   {
@@ -235,7 +235,7 @@ export const MACHINES: Machine[] = [
         ];
       }]
     ],
-    presets: [['Classic Saw', [50, 70, 20, 20]], ['Hollow Square', [100, 60, 15, 30]], ['Drifting VCO', [30, 60, 40, 85]]]
+    presets: [['Classic Saw', [50, 70, 20, 20]], ['Hollow Square', [100, 60, 15, 30]], ['Boards of Canada', [38, 52, 35, 85]]]
   }
 ];
 

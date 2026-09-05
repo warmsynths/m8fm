@@ -2,6 +2,7 @@ import {
   DEST_CUTOFF,
   DEST_MOD1,
   DEST_MOD2,
+  DEST_PAN,
   DEST_PITCH,
   DEST_VOLUME,
   FILTER_LOWPASS,
@@ -171,22 +172,72 @@ export class MacroMapper {
 
   private applyPad(patch: M8Patch) {
     const wash = this.macro('Wash');
-    patch.envelopes[0].attack = lerpByte(secondsToEnvAttack(0.5), secondsToEnvAttack(2.4), wash);
-    patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(3.0), secondsToEnvDecay(5.0), wash);
-    patch.envelopes[1].attack = lerpByte(secondsToEnvAttack(0.8), secondsToEnvAttack(3.0), wash);
+    patch.envelopes[0].attack = lerpByte(secondsToEnvAttack(0.4), secondsToEnvAttack(2.4), wash);
+    patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(2.5), secondsToEnvDecay(6.0), wash);
+    patch.envelopes[1].attack = lerpByte(secondsToEnvAttack(0.6), secondsToEnvAttack(3.0), wash);
+    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(2.6), secondsToEnvDecay(5.5), wash);
 
     const shimmer = this.macro('Shimmer');
-    setRatio(patch, 2, shimmer > 0.5 ? 8 : 4);
-    patch.operators[2].level = lerpByte(0x18, 0x50, shimmer);
+    // Low (<0.40): Dark & warm analog strings (1:1 warm overtone)
+    // Mid (0.40 - 0.70): Singing vocal formant overtone (3:1 odd harmonic, "Syn-Voix" choir vowel)
+    // High (>0.70): Crystalline glass octave shimmer (2:1)
+    if (shimmer < 0.40) {
+      setRatio(patch, 2, 1.0);
+      patch.operators[2].level = lerpByte(0x06, 0x24, shimmer / 0.40);
+      patch.operators[2].feedback = 0x00;
+    } else if (shimmer < 0.70) {
+      setRatio(patch, 2, 3.0);
+      const t = (shimmer - 0.40) / 0.30;
+      patch.operators[2].level = lerpByte(0x28, 0x48, t);
+      patch.operators[2].feedback = lerpByte(0x00, 0x14, t);
+    } else {
+      setRatio(patch, 2, 2.0);
+      const t = (shimmer - 0.70) / 0.30;
+      patch.operators[2].level = lerpByte(0x38, 0x55, t);
+      patch.operators[2].feedback = lerpByte(0x14, 0x3c, t);
+    }
 
     const chorus = this.macro('Chorus');
     patch.mixer.cho = lerpByte(0x40, 0xf0, chorus);
-    patch.lfos[0].amount = lerpByte(0x04, 0x14, chorus);
+    patch.lfos[0].amount = lerpByte(0x08, 0x2e, chorus);
+    patch.lfos[1].amount = lerpByte(0x00, 0x48, chorus);
 
-    // Hollow detunes the second carrier away from the first, thinning the core.
+    // Hollow: Core fundamental vs ethereal shell
+    // Low (<0.35): Full analog body with warm sawtooth feedback on carriers
+    // Mid (0.35 - 0.68): Pure sine vocal choral body (clean vocal tones)
+    // High (>0.68): Ethereal void space (sub-octave 0.50 drone + octave 2.00 glass shell)
     const hollow = this.macro('Hollow');
-    setRatio(patch, 3, 1 + hollow * 0.5);
-    patch.operators[1].level = lerpByte(0xa4, 0x80, hollow);
+    if (hollow < 0.35) {
+      const t = hollow / 0.35;
+      setRatio(patch, 1, 1.0);
+      setRatio(patch, 3, chorus > 0.4 ? 1.01 : 1.00);
+      patch.operators[1].level = lerpByte(0xa8, 0x90, t);
+      patch.operators[0].level = lerpByte(0x30, 0x24, t);
+      patch.operators[3].level = lerpByte(0x88, 0x8c, t);
+      patch.operators[1].feedback = lerpByte(0x28, 0x1c, t);
+      patch.operators[3].feedback = lerpByte(0x24, 0x18, t);
+      patch.filter.cutoff = lerpByte(0x9a, 0xb0, t);
+    } else if (hollow < 0.68) {
+      const t = (hollow - 0.35) / 0.33;
+      setRatio(patch, 1, 1.0);
+      setRatio(patch, 3, 2.0);
+      patch.operators[1].level = lerpByte(0x90, 0x78, t);
+      patch.operators[0].level = lerpByte(0x24, 0x18, t);
+      patch.operators[3].level = lerpByte(0x8c, 0x98, t);
+      patch.operators[1].feedback = lerpByte(0x08, 0x00, t);
+      patch.operators[3].feedback = lerpByte(0x08, 0x00, t);
+      patch.filter.cutoff = lerpByte(0xb0, 0xc4, t);
+    } else {
+      const t = (hollow - 0.68) / 0.32;
+      setRatio(patch, 1, 0.5);
+      setRatio(patch, 3, 2.0);
+      patch.operators[1].level = lerpByte(0x60, 0x7a, t);
+      patch.operators[0].level = 0x00;
+      patch.operators[1].feedback = 0x00;
+      patch.operators[3].level = lerpByte(0x94, 0xaa, t);
+      patch.operators[3].feedback = 0x00;
+      patch.filter.cutoff = lerpByte(0x8c, 0xb0, t);
+    }
   }
 
   private applyDigitalGlitch(patch: M8Patch) {
@@ -203,21 +254,25 @@ export class MacroMapper {
   }
 
   private applyVintageLead(patch: M8Patch) {
-    // Timbre sweeps from a soft single-modulator tone to a stacked, fed-back one.
+    // Timbre sweeps from a soft warm tone to a stacked, fed-back analog lead.
     const timbre = this.macro('Timbre');
-    patch.operators[0].level = lerpByte(0x50, 0x90, timbre);
-    patch.operators[1].level = lerpByte(0x28, 0x60, timbre);
-    patch.operators[3].feedback = lerpByte(0x18, 0x70, timbre);
+    patch.operators[0].level = lerpByte(0x40, 0x88, timbre);
+    patch.operators[1].level = lerpByte(0x20, 0x58, timbre);
+    patch.operators[3].feedback = lerpByte(0x14, 0x58, timbre);
 
-    patch.filter.cutoff = lerpByte(0x60, 0xf0, this.macro('Filter Cutoff'));
+    patch.filter.cutoff = lerpByte(0x60, 0xec, this.macro('Filter Cutoff'));
 
     const filterEnv = this.macro('Filter Envelope');
-    patch.envelopes[1].amount = lerpByte(0x00, 0x70, filterEnv);
-    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.5), secondsToEnvDecay(2.0), filterEnv);
+    patch.envelopes[1].amount = lerpByte(0x00, 0x68, filterEnv);
+    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.3), secondsToEnvDecay(1.8), filterEnv);
 
+    // Analog Slop: Boards of Canada worn cassette tape wow & flutter
     const slop = this.macro('Analog Slop');
-    patch.lfos[0].amount = lerpByte(0x00, 0x18, slop);
-    patch.lfos[0].freq = lerpByte(0x88, 0xc8, slop);
+    patch.lfos[0].amount = lerpByte(0x00, 0x03, slop);
+    patch.lfos[0].freq = lerpByte(0x38, 0x54, slop);
+    // Cutoff tape flutter in sync with tape drift
+    patch.lfos[1].amount = lerpByte(0x00, 0x18, slop);
+    patch.lfos[1].freq = lerpByte(0x30, 0x4c, slop);
   }
 
   /**
@@ -292,15 +347,15 @@ export class MacroMapper {
       case 'Pad':
         patch.name = 'M8FM PAD';
         patch.algo = 0x07; // [A>B]+[C>D]
-        patch.operators[0] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x38, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
+        patch.operators[0] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x30, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
         patch.operators[1] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xa4, feedback: 0x00, modA: 0x00, modB: 0x00 };
-        patch.operators[2] = { shape: OSC_SIN, ratio: 4, ratioFine: 0, level: 0x30, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
-        // Detuned against Op B, which is where the width comes from.
-        patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 1, level: 0x94, feedback: 0x00, modA: 0x00, modB: 0x00 };
-        patch.envelopes[0] = { amount: 0xff, attack: secondsToEnvAttack(0.9), hold: secondsToEnvDecay(0.8), decay: secondsToEnvDecay(4.0), dest: DEST_VOLUME, retrigger: 0x00 };
-        patch.envelopes[1] = { amount: 0xff, attack: secondsToEnvAttack(1.4), hold: 0x00, decay: secondsToEnvDecay(3.5), dest: DEST_MOD2, retrigger: 0x00 };
-        patch.lfos[0] = { amount: 0x08, shape: LFO_SIN, trigger: 0x00, freq: 0x60, dest: DEST_PITCH };
-        patch.filter = { type: FILTER_LOWPASS, cutoff: 0xb8, res: 0x28 };
+        patch.operators[2] = { shape: OSC_SIN, ratio: 2, ratioFine: 0, level: 0x24, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
+        patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x90, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.envelopes[0] = { amount: 0xff, attack: secondsToEnvAttack(1.0), hold: secondsToEnvDecay(0.4), decay: secondsToEnvDecay(4.5), dest: DEST_VOLUME, retrigger: 0x00 };
+        patch.envelopes[1] = { amount: 0xff, attack: secondsToEnvAttack(1.5), hold: 0x00, decay: secondsToEnvDecay(4.0), dest: DEST_MOD2, retrigger: 0x00 };
+        patch.lfos[0] = { amount: 0x18, shape: LFO_SIN, trigger: 0x00, freq: 0x40, dest: DEST_CUTOFF };
+        patch.lfos[1] = { amount: 0x24, shape: LFO_TRI, trigger: 0x00, freq: 0x30, dest: DEST_PAN };
+        patch.filter = { type: FILTER_LOWPASS, cutoff: 0xb0, res: 0x06 };
         patch.mixer.cho = 0xc0;
         break;
 
@@ -328,11 +383,16 @@ export class MacroMapper {
         patch.operators[0] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x50, feedback: 0x00, modA: 0x00, modB: 0x00 };
         patch.operators[1] = { shape: OSC_SIN, ratio: 2, ratioFine: 0, level: 0x30, feedback: 0x00, modA: 0x00, modB: 0x00 };
         patch.operators[2] = { shape: OSC_SIN, ratio: 3, ratioFine: 0, level: 0x18, feedback: 0x00, modA: 0x00, modB: 0x00 };
-        patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xd0, feedback: 0x30, modA: 0x00, modB: 0x00 };
+        patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xd0, feedback: 0x28, modA: 0x00, modB: 0x00 };
         patch.envelopes[0] = { amount: 0xff, attack: secondsToEnvAttack(0.04), hold: secondsToEnvDecay(0.5), decay: secondsToEnvDecay(3.5), dest: DEST_VOLUME, retrigger: 0x00 };
         patch.envelopes[1] = { amount: 0x50, attack: secondsToEnvAttack(0.02), hold: 0x00, decay: secondsToEnvDecay(1.2), dest: DEST_CUTOFF, retrigger: 0x00 };
-        patch.lfos[0] = { amount: 0x08, shape: LFO_TRI, trigger: 0x00, freq: 0xa8, dest: DEST_PITCH };
-        patch.filter = { type: FILTER_LOWPASS, cutoff: 0xa0, res: 0x40 };
+        // LFO 0: Gentle vintage pitch wow (lazy ~0.3 Hz tape drift)
+        patch.lfos[0] = { amount: 0x01, shape: LFO_TRI, trigger: 0x00, freq: 0x44, dest: DEST_PITCH };
+        // LFO 1: Subtle cutoff flutter
+        patch.lfos[1] = { amount: 0x08, shape: LFO_SIN, trigger: 0x00, freq: 0x38, dest: DEST_CUTOFF };
+        // Warm analog lowpass with musical resonance (no whistling!)
+        patch.filter = { type: FILTER_LOWPASS, cutoff: 0x98, res: 0x18 };
+        patch.mixer.cho = 0x50; // subtle tape stereo spread
         break;
     }
 
