@@ -19,6 +19,7 @@ import { AnchorMacroConfig, type AnchorName } from './audio/MacroMapper';
 import { MACHINES } from './ui/MachineData';
 import { SysExParser, type Dx7Patch } from './audio/SysExParser';
 import { DX7ToM8Translator } from './audio/DX7ToM8Translator';
+import { getDemoPatternForMachine } from './audio/DemoPatterns';
 
 const audio = new AudioController();
 
@@ -55,6 +56,9 @@ export class FmStudio extends LitElement {
   @state() accessor advMod = false;
   @state() accessor vol = 0.5;
 
+  @state() accessor isPlayingDemo = false;
+  @state() accessor currentDemoStep = -1;
+
   @state() accessor dx7Patches: Dx7Patch[] = [];
   @state() accessor dx7Sel = 0;
   @state() accessor dx7Adv = false;
@@ -63,6 +67,11 @@ export class FmStudio extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     this.selectMachine(0);
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    audio.stopDemo();
   }
 
   getVal(mi: number, i: number) {
@@ -94,6 +103,13 @@ export class FmStudio extends LitElement {
       const val = this.getVal(idx, i);
       const macroName = AnchorMacroConfig[m.name as AnchorName][i];
       audio.setMacro(macroName, val / 100);
+    }
+
+    if (this.isPlayingDemo) {
+      const pattern = getDemoPatternForMachine(m.name);
+      audio.playDemo(pattern, (step) => {
+        this.currentDemoStep = step;
+      });
     }
   }
 
@@ -146,9 +162,45 @@ export class FmStudio extends LitElement {
     }
   }
 
+  toggleDemo() {
+    if (this.isPlayingDemo) {
+      audio.stopDemo();
+      this.isPlayingDemo = false;
+      this.currentDemoStep = -1;
+    } else {
+      const m = MACHINES[this.sel];
+      const pattern = getDemoPatternForMachine(m.name);
+      audio.playDemo(pattern, (step) => {
+        this.currentDemoStep = step;
+      });
+      this.isPlayingDemo = true;
+    }
+  }
+
+  getPatchFilename(ext: 'm8i' | 'm8s') {
+    const m = MACHINES[this.sel];
+    const pi = this.preset % m.presets.length;
+    const presetName = m.presets[pi][0];
+    const cleanMach = m.name.replace(/[^a-zA-Z0-9_\-]/g, '_');
+    const cleanPreset = presetName.replace(/[^a-zA-Z0-9_\-]/g, '_');
+    return `${cleanMach}_${cleanPreset}.${ext}`;
+  }
+
+  exportInstrument() {
+    const filename = this.getPatchFilename('m8i');
+    audio.exportPatch(filename);
+  }
+
+  exportSong() {
+    const m = MACHINES[this.sel];
+    const pattern = getDemoPatternForMachine(m.name);
+    const filename = this.getPatchFilename('m8s');
+    const songName = `M8FM ${m.name}`.slice(0, 12);
+    audio.exportSong(filename, pattern, songName);
+  }
+
   downloadM8Instrument() {
-    // What is playing is what gets exported -- there is only ever one patch.
-    audio.exportPatch('Patch.m8i');
+    this.exportInstrument();
   }
 
   handleDown(e: PointerEvent, index: number, horiz: boolean) {
@@ -225,12 +277,30 @@ export class FmStudio extends LitElement {
         <!-- Desktop Layout -->
         <div class="desktop-view" style="width:820px;flex:none;background:#e2e0dc;border:1px solid rgba(0,0,0,.12);border-radius:7px;overflow:hidden;flex-direction:column;max-height:100%">
           
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid rgba(0,0,0,.12)">
-            <div style="display:flex;align-items:center;gap:9px">
-              <div style="width:8px;height:8px;border-radius:50%;background:#17170f"></div>
-              <div style="font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.18em">FM LAYER</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid rgba(0,0,0,.12)">
+            <div style="display:flex;align-items:center;gap:14px">
+              <div style="display:flex;align-items:center;gap:9px">
+                <div style="width:8px;height:8px;border-radius:50%;background:#17170f"></div>
+                <div style="font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.18em">FM LAYER</div>
+              </div>
+
+              <!-- Demo Play / Stop Button -->
+              <button type="button" @click=${this.toggleDemo}
+                style="display:flex;align-items:center;gap:7px;padding:5px 10px;border-radius:4px;cursor:pointer;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.12em;transition:all 150ms ease;${this.isPlayingDemo ? 'background:#17170f;color:#dcd9c6;border:1px solid #17170f;box-shadow:0 0 8px rgba(0,0,0,0.18)' : 'background:transparent;color:#17170f;border:1px solid rgba(0,0,0,.22)'}">
+                ${this.isPlayingDemo ? html`
+                  <span style="display:inline-block;width:7px;height:7px;background:#dcd9c6;border-radius:1px"></span>
+                  <span>STOP DEMO</span>
+                  <span style="font-size:9.5px;color:#dcd9c6;opacity:0.75;margin-left:3px;font-variant-numeric:tabular-nums">${this.currentDemoStep >= 0 ? String(this.currentDemoStep + 1).padStart(2, '0') : ''}</span>
+                ` : html`
+                  <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                  </svg>
+                  <span>PLAY DEMO</span>
+                `}
+              </button>
             </div>
-            <div style="display:flex;align-items:center;gap:12px">
+
+            <div style="display:flex;align-items:center;gap:10px">
               <div @pointerdown=${this.handleVolDown} @wheel=${this.handleVolWheel} style="display:flex;align-items:center;gap:8px;padding:5px 9px;border:1px solid rgba(0,0,0,.15);border-radius:4px;cursor:ew-resize;user-select:none;touch-action:none">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#17170f" stroke-width="2">
                   <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
@@ -241,10 +311,33 @@ export class FmStudio extends LitElement {
                 </div>
                 <div style="font:500 10px 'JetBrains Mono',monospace;color:#17170f;width:24px;text-align:right">${Math.round(this.vol * 100)}</div>
               </div>
+
               <!-- Hidden DX7 stuff -->
               <input type="file" id="syx-upload" accept=".syx" style="display:none" @change=${this.handleSyxUpload} />
               <button type="button" @click=${() => this.renderRoot.querySelector('#syx-upload')?.dispatchEvent(new MouseEvent('click'))} style="display:none; border:1px solid #101010;background:transparent;color:#101010;padding:8px 13px;border-radius:4px;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.14em;white-space:nowrap">LOAD .SYX</button>
-              <button type="button" @click=${this.downloadM8Instrument} style="border:1px solid #101010;background:#101010;color:#fff;padding:8px 13px;border-radius:4px;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.14em;white-space:nowrap">COPY TO M8</button>
+
+              <!-- Export Buttons -->
+              <div style="display:flex;align-items:center;gap:6px">
+                <button type="button" @click=${this.exportInstrument} title="Export M8 Instrument (.m8i)"
+                  style="display:flex;align-items:center;gap:5px;border:1px solid rgba(0,0,0,.25);background:transparent;color:#101010;padding:7px 10px;border-radius:4px;cursor:pointer;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.12em;white-space:nowrap;transition:background 120ms ease">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  <span>EXPORT .M8I</span>
+                </button>
+
+                <button type="button" @click=${this.exportSong} title="Export M8 Song (.m8s) with Demo Pattern"
+                  style="display:flex;align-items:center;gap:5px;border:1px solid #101010;background:#101010;color:#fff;padding:7px 11px;border-radius:4px;cursor:pointer;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.12em;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.18);transition:transform 120ms ease">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 18V5l12-2v13"></path>
+                    <circle cx="6" cy="18" r="3"></circle>
+                    <circle cx="18" cy="16" r="3"></circle>
+                  </svg>
+                  <span>EXPORT .M8S</span>
+                </button>
+              </div>
             </div>
           </div>
           
@@ -601,7 +694,39 @@ export class FmStudio extends LitElement {
                   </div>
                 `;
               })}
-              <button type="button" @click=${this.downloadM8Instrument} style="margin-top:4px;border:1px solid #101010;background:#101010;color:#fff;padding:12px;border-radius:4px;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em">COPY TO M8</button>
+              <button type="button" @click=${this.toggleDemo}
+                style="margin-top:6px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid ${this.isPlayingDemo ? '#17170f' : 'rgba(0,0,0,.25)'};background:${this.isPlayingDemo ? '#17170f' : 'transparent'};color:${this.isPlayingDemo ? '#dcd9c6' : '#17170f'};padding:10px;border-radius:4px;cursor:pointer;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.14em">
+                ${this.isPlayingDemo ? html`
+                  <span style="display:inline-block;width:7px;height:7px;background:#dcd9c6;border-radius:1px"></span>
+                  <span>STOP DEMO (${this.currentDemoStep >= 0 ? String(this.currentDemoStep + 1).padStart(2, '0') : ''})</span>
+                ` : html`
+                  <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
+                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                  </svg>
+                  <span>PLAY DEMO PATTERN</span>
+                `}
+              </button>
+
+              <div style="display:flex;gap:7px;margin-top:4px">
+                <button type="button" @click=${this.exportInstrument}
+                  style="flex:1;border:1px solid rgba(0,0,0,.3);background:transparent;color:#101010;padding:11px 8px;border-radius:4px;cursor:pointer;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.12em;display:flex;align-items:center;justify-content:center;gap:5px">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                  </svg>
+                  <span>EXPORT .M8I</span>
+                </button>
+                <button type="button" @click=${this.exportSong}
+                  style="flex:1;border:1px solid #101010;background:#101010;color:#fff;padding:11px 8px;border-radius:4px;cursor:pointer;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.12em;display:flex;align-items:center;justify-content:center;gap:5px">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M9 18V5l12-2v13"></path>
+                    <circle cx="6" cy="18" r="3"></circle>
+                    <circle cx="18" cy="16" r="3"></circle>
+                  </svg>
+                  <span>EXPORT .M8S</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

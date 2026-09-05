@@ -2,6 +2,9 @@ import { FmEngine, noteToFrequency } from './FmEngine';
 import { MacroMapper, type AnchorName } from './MacroMapper';
 import { M8Serializer } from './M8Serializer';
 import type { M8Patch } from './M8Patch';
+import { DemoPlayer } from './DemoPlayer';
+import type { DemoPattern } from './DemoPatterns';
+import { serializeDemoSong } from './DemoSong';
 
 /** Home row plays a C major scale from middle C. */
 const keyMap: Record<string, number> = {
@@ -12,6 +15,7 @@ export class AudioController {
   private engine = new FmEngine();
   private mapper = new MacroMapper();
   private serializer = new M8Serializer();
+  private demoPlayer = new DemoPlayer();
   private rawPatch: M8Patch | null = null;
   private ctx: AudioContext | null = null;
   private heldKeys = new Set<string>();
@@ -113,5 +117,25 @@ export class AudioController {
 
   public exportPatch(filename: string) {
     this.serializer.downloadM8Instrument(filename, this.getPatch());
+  }
+
+  public exportSong(filename: string, pattern: DemoPattern, songName?: string) {
+    const bytes = serializeDemoSong(this.getPatch(), pattern, songName);
+    this.serializer.downloadM8Song(filename, bytes);
+  }
+
+  public playDemo(pattern: DemoPattern, onStep?: (step: number) => void) {
+    this.init();
+    if (this.ctx) {
+      this.demoPlayer.play(pattern, this.engine, this.ctx, onStep);
+    }
+  }
+
+  public stopDemo() {
+    this.demoPlayer.stop();
+  }
+
+  public isDemoPlaying(): boolean {
+    return this.demoPlayer.isPlaying();
   }
 }

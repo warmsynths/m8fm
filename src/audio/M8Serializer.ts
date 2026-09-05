@@ -80,22 +80,32 @@ export function patchToFMSynth(patch: M8Patch): any {
   return instr;
 }
 
+function triggerDownload(bytes: Uint8Array, filename: string) {
+  const blob = new Blob([bytes as any], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export class M8Serializer {
   public serializeFmInstrument(patch: M8Patch): Uint8Array {
     return dumpM8File(patchToFMSynth(patch));
   }
 
   public downloadM8Instrument(filename: string, patch: M8Patch) {
+    const finalFilename = filename.endsWith('.m8i') ? filename : `${filename}.m8i`;
     const bytes = this.serializeFmInstrument(patch);
-    const blob = new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' });
-    const url = URL.createObjectURL(blob);
+    triggerDownload(new Uint8Array(bytes), finalFilename);
+  }
 
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename.endsWith('.m8i') ? filename : `${filename}.m8i`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  public downloadM8Song(filename: string, songBytes: Uint8Array) {
+    const finalFilename = filename.endsWith('.m8s') ? filename : `${filename}.m8s`;
+    triggerDownload(songBytes, finalFilename);
   }
 }
