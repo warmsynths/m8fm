@@ -1,18 +1,17 @@
 import {
   DEST_CUTOFF,
-  DEST_MOD1,
   DEST_MOD2,
   DEST_PAN,
   DEST_PITCH,
   DEST_VOLUME,
+  FILTER_HIGHPASS,
   FILTER_LOWPASS,
-  FILTER_OFF,
-  LFO_RAMP_DN,
   LFO_SIN,
-  LFO_SQU_DN,
   LFO_TRI,
   MOD_TARGET_LEV,
+  OSC_NOI,
   OSC_SIN,
+  OSC_SQR,
   clampByte,
   clonePatch,
   secondsToEnvAttack,
@@ -23,14 +22,14 @@ import {
 } from './M8Patch';
 import type { M8Patch } from './M8Patch';
 
-export type AnchorName = 'Electric Piano' | 'Sub Bass' | 'Mallet' | 'Pad' | 'Digital Glitch' | 'Vintage Lead';
+export type AnchorName = 'Electric Piano' | 'Sub Bass' | 'Mallet' | 'Pad' | 'Percussion' | 'Vintage Lead';
 
 export const AnchorMacroConfig: Record<AnchorName, string[]> = {
   'Electric Piano': ['Tine Material', 'Strike Force', 'Bark', 'Tremolo Depth'],
   'Sub Bass': ['Sub Weight', 'Pitch Snap', 'Top-End Growl', 'Boom'],
   'Mallet': ['Harmonic Focus', 'Dampening', 'Impact Noise'],
   'Pad': ['Wash', 'Shimmer', 'Chorus', 'Hollow'],
-  'Digital Glitch': ['Digital Dirt', 'Laser Zap', 'Pulse Width'],
+  'Percussion': ['Punch', 'Tone', 'Decay', 'Dirt'],
   'Vintage Lead': ['Timbre', 'Filter Cutoff', 'Filter Envelope', 'Analog Slop']
 };
 
@@ -60,10 +59,12 @@ export class MacroMapper {
   private currentPatch: M8Patch;
   private macroState: Record<string, number> = {};
   private currentAnchor: AnchorName;
+  private currentPresetIndex: number = 0;
+  private percussionMacroStates: Record<number, Record<string, number>> = {};
 
   constructor(initialAnchor: AnchorName = 'Electric Piano') {
     this.currentAnchor = initialAnchor;
-    this.basePatch = MacroMapper.getAnchorPatch(initialAnchor);
+    this.basePatch = MacroMapper.getAnchorPatch(initialAnchor, 0);
     this.currentPatch = clonePatch(this.basePatch);
     // Resolve the macros straight away so getPatch() never returns a patch that
     // differs from what the first setMacro() call would produce.
@@ -72,13 +73,40 @@ export class MacroMapper {
 
   public loadAnchor(anchorName: AnchorName) {
     this.currentAnchor = anchorName;
-    this.basePatch = MacroMapper.getAnchorPatch(anchorName);
-    this.macroState = {};
+    this.currentPresetIndex = 0;
+    this.basePatch = MacroMapper.getAnchorPatch(anchorName, 0);
+    this.macroState = anchorName === 'Percussion' ? (this.percussionMacroStates[0] || {}) : {};
     this.updatePatch();
   }
 
+  public selectPreset(presetIndex: number) {
+    this.currentPresetIndex = presetIndex;
+    if (this.currentAnchor === 'Percussion') {
+      this.basePatch = MacroMapper.getAnchorPatch('Percussion', presetIndex);
+      this.macroState = this.percussionMacroStates[presetIndex] || {};
+      this.updatePatch();
+    }
+  }
+
+  public getPatchForPreset(presetIndex: number): M8Patch {
+    if (this.currentAnchor !== 'Percussion') {
+      return this.getPatch();
+    }
+    const base = clonePatch(MacroMapper.getAnchorPatch('Percussion', presetIndex));
+    const savedState = this.percussionMacroStates[presetIndex] || {};
+    this.applyPercussion(base, presetIndex, savedState);
+    return base;
+  }
+
   public setMacro(macroName: string, normalizedValue: number) {
-    this.macroState[macroName] = Math.max(0, Math.min(1, normalizedValue));
+    const val = Math.max(0, Math.min(1, normalizedValue));
+    this.macroState[macroName] = val;
+    if (this.currentAnchor === 'Percussion') {
+      if (!this.percussionMacroStates[this.currentPresetIndex]) {
+        this.percussionMacroStates[this.currentPresetIndex] = {};
+      }
+      this.percussionMacroStates[this.currentPresetIndex][macroName] = val;
+    }
     this.updatePatch();
   }
 
@@ -98,7 +126,7 @@ export class MacroMapper {
       case 'Sub Bass': this.applySubBass(patch); break;
       case 'Mallet': this.applyMallet(patch); break;
       case 'Pad': this.applyPad(patch); break;
-      case 'Digital Glitch': this.applyDigitalGlitch(patch); break;
+      case 'Percussion': this.applyPercussion(patch, this.currentPresetIndex); break;
       case 'Vintage Lead': this.applyVintageLead(patch); break;
     }
 
@@ -240,17 +268,85 @@ export class MacroMapper {
     }
   }
 
-  private applyDigitalGlitch(patch: M8Patch) {
-    const dirt = this.macro('Digital Dirt');
-    patch.operators[0].feedback = lerpByte(0x10, 0xd0, dirt);
+  private applyPercussion(
+    patch: M8Patch,
+    presetIndex: number = this.currentPresetIndex,
+    customMacroState?: Record<string, number>
+  ) {
+    const getVal = (name: string) => customMacroState ? (customMacroState[name] ?? 0) : this.macro(name);
+    const punch = getVal('Punch');
+    const tone = getVal('Tone');
+    const decay = getVal('Decay');
+    const dirt = getVal('Dirt');
 
-    const zap = this.macro('Laser Zap');
-    patch.envelopes[1].amount = lerpByte(0x10, 0x90, zap);
-    patch.envelopes[1].decay = lerpByte(0x50, 0x20, zap);
+    switch (presetIndex) {
+      case 0: // KICK
+        // Punch: controls FM modulator intensity and transient click attack
+        patch.operators[2].level = lerpByte(0x40, 0xa8, punch);
+        patch.operators[1].level = lerpByte(0x20, 0x78, punch);
+        patch.operators[0].level = lerpByte(0x18, 0x60, punch);
+        patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.015), secondsToEnvDecay(0.028), punch);
 
-    const pw = this.macro('Pulse Width');
-    patch.lfos[1].amount = lerpByte(0x00, 0x70, pw);
-    patch.lfos[1].freq = lerpByte(0x90, 0xe8, pw);
+        // Tone: sub carrier fine tuning (45 Hz to 65 Hz) and filter cutoff
+        patch.operators[3].ratioFine = lerpByte(35, 50, tone);
+        patch.filter.cutoff = lerpByte(0x88, 0xec, tone);
+
+        // Decay: tail duration from short tight punch (0.16s) to long 808 sub boom (1.2s)
+        patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(0.16), secondsToEnvDecay(1.2), decay);
+
+        // Dirt: drives sub carrier feedback for warm analog drive and tape saturation
+        patch.operators[3].feedback = lerpByte(0x00, 0x48, dirt);
+        patch.operators[0].feedback = lerpByte(0x10, 0x40, dirt);
+        break;
+
+      case 1: // SNARE
+        // Punch: initial stick impact and drum body pop
+        patch.operators[2].level = lerpByte(0x18, 0x68, punch);
+        patch.operators[3].level = lerpByte(0x88, 0xd0, punch);
+
+        // Tone: filter cutoff shaping the snare wire brightness
+        patch.filter.cutoff = lerpByte(0x90, 0xf0, tone);
+
+        // Decay: snare wire tail and release (0.12s tight crack to 0.55s loose ring)
+        patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(0.12), secondsToEnvDecay(0.55), decay);
+
+        // Dirt: wire rattle level and inharmonic noise bite
+        patch.operators[1].level = lerpByte(0x60, 0xd8, dirt);
+        patch.operators[0].level = lerpByte(0x18, 0x58, dirt);
+        break;
+
+      case 2: // CLOSED HAT
+        // Punch: initial metallic attack strike
+        patch.operators[1].level = lerpByte(0x40, 0xb0, punch);
+        patch.operators[0].level = lerpByte(0x20, 0x70, punch);
+
+        // Tone: highpass cutoff frequency (crispness)
+        patch.filter.cutoff = lerpByte(0xa8, 0xee, tone);
+
+        // Decay: micro-chick (0.025s) to tight tick (0.09s)
+        patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(0.025), secondsToEnvDecay(0.09), decay);
+
+        // Dirt: metallic inharmonic sizzle
+        patch.operators[0].feedback = lerpByte(0x10, 0x70, dirt);
+        patch.operators[2].feedback = lerpByte(0x10, 0x60, dirt);
+        break;
+
+      case 3: // OPEN HAT
+        // Punch: initial cymbal attack strike brightness
+        patch.envelopes[1].amount = lerpByte(0x10, 0x60, punch);
+        patch.operators[1].level = lerpByte(0x50, 0xb8, punch);
+
+        // Tone: highpass shimmer cutoff
+        patch.filter.cutoff = lerpByte(0x98, 0xe4, tone);
+
+        // Decay: open cymbal sizzle ring (0.20s to 1.2s)
+        patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(0.20), secondsToEnvDecay(1.2), decay);
+
+        // Dirt: metallic feedback resonance and wash
+        patch.operators[0].feedback = lerpByte(0x20, 0x88, dirt);
+        patch.operators[2].feedback = lerpByte(0x20, 0x78, dirt);
+        break;
+    }
   }
 
   private applyVintageLead(patch: M8Patch) {
@@ -285,7 +381,7 @@ export class MacroMapper {
    * the note is held, which is what turns an otherwise reasonable patch into a
    * continuous buzz.
    */
-  public static getAnchorPatch(anchor: AnchorName): M8Patch {
+  public static getAnchorPatch(anchor: AnchorName, presetIndex: number = 0): M8Patch {
     const patch = createDefaultPatch();
 
     switch (anchor) {
@@ -359,23 +455,8 @@ export class MacroMapper {
         patch.mixer.cho = 0xc0;
         break;
 
-      case 'Digital Glitch':
-        patch.name = 'M8FM GLT';
-        patch.algo = 0x00; // A>B>C>D
-        // MOD 1 rests half open so LFO 2 can swing the operator's level both
-        // ways. A bus that scales rather than adds is silent at zero, so an
-        // LFO around a resting zero would only ever gate, never modulate.
-        patch.mods = [0x80, 0x00, 0x00, 0x00];
-        patch.operators[0] = { shape: OSC_SIN, ratio: 7, ratioFine: 13, level: 0x90, feedback: 0x60, modA: busToLevel(1), modB: 0x00 };
-        patch.operators[1] = { shape: OSC_SIN, ratio: 11, ratioFine: 0, level: 0x70, feedback: 0x00, modA: 0x00, modB: 0x00 };
-        patch.operators[2] = { shape: OSC_SIN, ratio: 0, ratioFine: 50, level: 0x88, feedback: 0x00, modA: 0x00, modB: 0x00 };
-        patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xe0, feedback: 0x00, modA: 0x00, modB: 0x00 };
-        patch.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(0.7), dest: DEST_VOLUME, retrigger: 0x00 };
-        patch.envelopes[1] = { amount: 0x40, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(0.16), dest: DEST_PITCH, retrigger: 0x00 };
-        patch.lfos[0] = { amount: 0x30, shape: LFO_SQU_DN, trigger: 0x01, freq: 0xe0, dest: DEST_PITCH };
-        patch.lfos[1] = { amount: 0x40, shape: LFO_RAMP_DN, trigger: 0x00, freq: 0xd0, dest: DEST_MOD1 };
-        patch.filter = { type: FILTER_OFF, cutoff: 0xff, res: 0x00 };
-        break;
+      case 'Percussion':
+        return MacroMapper.getPercussionAnchorPatch(presetIndex);
 
       case 'Vintage Lead':
         patch.name = 'M8FM LED';
@@ -396,6 +477,81 @@ export class MacroMapper {
         break;
     }
 
+    return patch;
+  }
+
+  public static getPercussionAnchorPatch(presetIndex: number = 0): M8Patch {
+    const patch = createDefaultPatch();
+    switch (presetIndex) {
+      case 0: // KICK
+        patch.name = 'M8FM KIK';
+        patch.algo = 0x07; // [A>B]+[C>D]
+        // Op D is the deep fundamental sine sub carrier (ratio 0.40 = 52.3 Hz at note 48)
+        patch.operators[3] = { shape: OSC_SIN, ratio: 0, ratioFine: 40, level: 0xe0, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        // Op C is the FM body modulator (ratio 1.0, wired to MOD2 for fast 20ms punch decay)
+        patch.operators[2] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x78, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
+        // Op B is the transient click carrier (ratio 4.0, wired to MOD2 for sharp attack snap)
+        patch.operators[1] = { shape: OSC_SIN, ratio: 4, ratioFine: 0, level: 0x48, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
+        // Op A is the transient click modulator (ratio 8.0, wired to MOD2)
+        patch.operators[0] = { shape: OSC_SIN, ratio: 8, ratioFine: 0, level: 0x38, feedback: 0x18, modA: busToLevel(2), modB: 0x00 };
+        // Volume envelope: immediate attack, hold 0, decay 0.45s for deep sub tail
+        patch.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(0.45), dest: DEST_VOLUME, retrigger: 0x00 };
+        // Fast 0.020s (20ms) transient envelope on MOD2: powers the FM knock and click burst, then cuts out cleanly
+        patch.envelopes[1] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(0.020), dest: DEST_MOD2, retrigger: 0x00 };
+        patch.filter = { type: FILTER_LOWPASS, cutoff: 0xb8, res: 0x10 };
+        break;
+
+      case 1: // SNARE
+        patch.name = 'M8FM SNR';
+        patch.algo = 0x07; // [A>B]+[C>D]
+        // Op C>D: Tonal drum body (shell thump)
+        patch.operators[3] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0xb4, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
+        patch.operators[2] = { shape: OSC_SIN, ratio: 1, ratioFine: 0, level: 0x44, feedback: 0x00, modA: busToLevel(2), modB: 0x00 };
+        // Op A>B: Snappy wire noise (white noise carrier + inharmonic square modulator)
+        patch.operators[1] = { shape: OSC_NOI, ratio: 1, ratioFine: 0, level: 0xa8, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.operators[0] = { shape: OSC_SQR, ratio: 4, ratioFine: 33, level: 0x38, feedback: 0x20, modA: 0x00, modB: 0x00 };
+        // Volume envelope: snappy 0.24s decay
+        patch.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(0.24), dest: DEST_VOLUME, retrigger: 0x00 };
+        // Fast 0.08s body envelope on MOD2: body shell pops punchily then leaves crisp snare wires to sizzle
+        patch.envelopes[1] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(0.08), dest: DEST_MOD2, retrigger: 0x00 };
+        // Warm lowpass filter to shape the noise into authentic snare wires
+        patch.filter = { type: FILTER_LOWPASS, cutoff: 0xc8, res: 0x14 };
+        break;
+
+      case 2: // CLOSED HAT
+        patch.name = 'M8FM CHH';
+        patch.algo = 0x07; // [A>B]+[C>D]
+        // Pair C>D: Sizzling high-frequency noise
+        patch.operators[3] = { shape: OSC_NOI, ratio: 1, ratioFine: 0, level: 0xb0, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.operators[2] = { shape: OSC_SQR, ratio: 7, ratioFine: 41, level: 0x30, feedback: 0x30, modA: 0x00, modB: 0x00 };
+        // Pair A>B: Inharmonic metallic cluster (square wave chime)
+        patch.operators[1] = { shape: OSC_SQR, ratio: 3, ratioFine: 17, level: 0x80, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.operators[0] = { shape: OSC_SQR, ratio: 5, ratioFine: 83, level: 0x50, feedback: 0x40, modA: 0x00, modB: 0x00 };
+        // Ultra-tight volume decay: 0.05s
+        patch.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(0.05), dest: DEST_VOLUME, retrigger: 0x00 };
+        // No pitch envelope
+        patch.envelopes[1] = { amount: 0x00, attack: 0x00, hold: 0x00, decay: 0x00, dest: DEST_VOLUME, retrigger: 0x00 };
+        // Steep highpass filter cuts out all low/mid frequencies for razor-sharp hat
+        patch.filter = { type: FILTER_HIGHPASS, cutoff: 0xc6, res: 0x20 };
+        break;
+
+      case 3: // OPEN HAT
+        patch.name = 'M8FM OHH';
+        patch.algo = 0x07; // [A>B]+[C>D]
+        // Pair C>D: High-frequency noise wash (sizzle)
+        patch.operators[3] = { shape: OSC_NOI, ratio: 1, ratioFine: 0, level: 0xb8, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.operators[2] = { shape: OSC_SQR, ratio: 7, ratioFine: 41, level: 0x38, feedback: 0x40, modA: 0x00, modB: 0x00 };
+        // Pair A>B: Metallic inharmonic ring (square wave cluster)
+        patch.operators[1] = { shape: OSC_SQR, ratio: 3, ratioFine: 17, level: 0x88, feedback: 0x00, modA: 0x00, modB: 0x00 };
+        patch.operators[0] = { shape: OSC_SQR, ratio: 5, ratioFine: 83, level: 0x58, feedback: 0x50, modA: 0x00, modB: 0x00 };
+        // Open cymbal sustain envelope: 0.48s decay
+        patch.envelopes[0] = { amount: 0xff, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(0.48), dest: DEST_VOLUME, retrigger: 0x00 };
+        // Initial strike filter envelope: opens the filter wide on the hit for instant sparkle, then settles into sizzle (no pitch drop!)
+        patch.envelopes[1] = { amount: 0x38, attack: 0x00, hold: 0x00, decay: secondsToEnvDecay(0.06), dest: DEST_CUTOFF, retrigger: 0x00 };
+        // Highpass filter for sparkling, airy cymbal sheen
+        patch.filter = { type: FILTER_HIGHPASS, cutoff: 0xbc, res: 0x18 };
+        break;
+    }
     return patch;
   }
 }

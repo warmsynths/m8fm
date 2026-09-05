@@ -155,6 +155,7 @@ export class FmStudio extends LitElement {
     this.dirty = false;
     
     const m = MACHINES[this.sel];
+    audio.selectPreset(idx);
     for (let i = 0; i < m.mods.length; i++) {
       const val = this.getVal(this.sel, i);
       const macroName = AnchorMacroConfig[m.name as AnchorName][i];

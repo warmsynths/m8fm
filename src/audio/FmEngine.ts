@@ -152,8 +152,8 @@ export class FmEngine {
     }
   }
 
-  public noteOn(noteId: number, frequency: number, velocity = 1.0) {
-    this.post({ type: 'noteOn', noteId, frequency, velocity });
+  public noteOn(noteId: number, frequency: number, velocity = 1.0, spec?: RenderSpec) {
+    this.post({ type: 'noteOn', noteId, frequency, velocity, spec });
   }
 
   public noteOff(noteId: number) {

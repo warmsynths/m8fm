@@ -167,37 +167,61 @@ const PAD_DEMO_PATTERN: DemoPattern = {
   ]
 };
 
-// 5. Digital Glitch: 32-step IDM syncopated stutter pattern (135 BPM)
-const GLITCH_DEMO_PATTERN: DemoPattern = {
-  id: 'glitch_idm',
-  name: 'IDM Glitch Stutter',
-  tempo: 135,
+// 5. Percussion: 32-step Electro Breakbeat pattern (130 BPM)
+const PERCUSSION_DEMO_PATTERN: DemoPattern = {
+  id: 'percussion_electro',
+  name: 'Electro Breakbeat',
+  tempo: 130,
   totalSteps: 32,
   notes: [
-    // Phrase 1 (steps 0..15)
-    { track: 0, step: 0, note: 48, length: 1, velocity: 1.0 },  // C3 stab
-    { track: 0, step: 1, note: 60, length: 1, velocity: 0.7 },  // C4 stutter
-    { track: 0, step: 3, note: 72, length: 1, velocity: 0.9 },  // C5 blip
-    { track: 0, step: 4, note: 54, length: 2, velocity: 0.8 },  // F#3 zap
-    { track: 0, step: 7, note: 66, length: 1, velocity: 0.6 },  // F#4
-    { track: 0, step: 8, note: 48, length: 2, velocity: 1.0 },  // C3
-    { track: 0, step: 11, note: 75, length: 1, velocity: 0.8 }, // D#5
-    { track: 0, step: 12, note: 63, length: 1, velocity: 0.9 }, // D#4
-    { track: 0, step: 14, note: 70, length: 1, velocity: 0.7 }, // Bb4
-    { track: 0, step: 15, note: 58, length: 1, velocity: 0.8 }, // Bb3
+    // Track 0: Kick
+    { track: 0, step: 0, note: 48, length: 1, velocity: 1.0 },
+    { track: 0, step: 6, note: 48, length: 1, velocity: 0.85 },
+    { track: 0, step: 10, note: 48, length: 1, velocity: 0.9 },
+    { track: 0, step: 16, note: 48, length: 1, velocity: 1.0 },
+    { track: 0, step: 22, note: 48, length: 1, velocity: 0.85 },
+    { track: 0, step: 26, note: 48, length: 1, velocity: 0.9 },
+    { track: 0, step: 28, note: 48, length: 1, velocity: 0.8 },
 
-    // Phrase 2 (steps 16..31)
-    { track: 0, step: 16, note: 48, length: 1, velocity: 1.0 }, // C3
-    { track: 0, step: 18, note: 60, length: 1, velocity: 0.6 }, // C4
-    { track: 0, step: 19, note: 72, length: 1, velocity: 0.7 }, // C5
-    { track: 0, step: 20, note: 49, length: 2, velocity: 0.9 }, // C#3
-    { track: 0, step: 23, note: 73, length: 1, velocity: 0.8 }, // C#5
-    { track: 0, step: 24, note: 48, length: 1, velocity: 1.0 }, // C3
-    { track: 0, step: 26, note: 67, length: 1, velocity: 0.7 }, // G4
-    { track: 0, step: 28, note: 79, length: 1, velocity: 0.9 }, // G5
-    { track: 0, step: 29, note: 78, length: 1, velocity: 0.8 }, // F#5
-    { track: 0, step: 30, note: 66, length: 1, velocity: 0.7 }, // F#4
-    { track: 0, step: 31, note: 54, length: 1, velocity: 0.6 }  // F#3
+    // Track 1: Snare
+    { track: 1, step: 4, note: 55, length: 1, velocity: 1.0 },
+    { track: 1, step: 12, note: 55, length: 1, velocity: 1.0 },
+    { track: 1, step: 15, note: 55, length: 1, velocity: 0.45 },
+    { track: 1, step: 20, note: 55, length: 1, velocity: 1.0 },
+    { track: 1, step: 28, note: 55, length: 1, velocity: 1.0 },
+    { track: 1, step: 30, note: 55, length: 1, velocity: 0.55 },
+    { track: 1, step: 31, note: 55, length: 1, velocity: 0.4 },
+
+    // Track 2: Closed Hat
+    { track: 2, step: 0, note: 72, length: 1, velocity: 0.7 },
+    { track: 2, step: 1, note: 72, length: 1, velocity: 0.4 },
+    { track: 2, step: 3, note: 72, length: 1, velocity: 0.5 },
+    { track: 2, step: 4, note: 72, length: 1, velocity: 0.6 },
+    { track: 2, step: 5, note: 72, length: 1, velocity: 0.4 },
+    { track: 2, step: 7, note: 72, length: 1, velocity: 0.5 },
+    { track: 2, step: 8, note: 72, length: 1, velocity: 0.75 },
+    { track: 2, step: 9, note: 72, length: 1, velocity: 0.4 },
+    { track: 2, step: 11, note: 72, length: 1, velocity: 0.5 },
+    { track: 2, step: 12, note: 72, length: 1, velocity: 0.6 },
+    { track: 2, step: 13, note: 72, length: 1, velocity: 0.4 },
+    { track: 2, step: 14, note: 72, length: 1, velocity: 0.5 },
+    { track: 2, step: 16, note: 72, length: 1, velocity: 0.7 },
+    { track: 2, step: 17, note: 72, length: 1, velocity: 0.4 },
+    { track: 2, step: 19, note: 72, length: 1, velocity: 0.5 },
+    { track: 2, step: 20, note: 72, length: 1, velocity: 0.6 },
+    { track: 2, step: 21, note: 72, length: 1, velocity: 0.4 },
+    { track: 2, step: 23, note: 72, length: 1, velocity: 0.5 },
+    { track: 2, step: 24, note: 72, length: 1, velocity: 0.75 },
+    { track: 2, step: 25, note: 72, length: 1, velocity: 0.4 },
+    { track: 2, step: 27, note: 72, length: 1, velocity: 0.5 },
+    { track: 2, step: 28, note: 72, length: 1, velocity: 0.6 },
+    { track: 2, step: 29, note: 72, length: 1, velocity: 0.4 },
+
+    // Track 3: Open Hat
+    { track: 3, step: 2, note: 74, length: 2, velocity: 0.9 },
+    { track: 3, step: 10, note: 74, length: 2, velocity: 0.85 },
+    { track: 3, step: 18, note: 74, length: 2, velocity: 0.9 },
+    { track: 3, step: 26, note: 74, length: 2, velocity: 0.95 }
   ]
 };
 
@@ -234,13 +258,15 @@ export const DEMO_PATTERNS: Record<string, DemoPattern> = {
   'Sub Bass': SUB_BASS_DEMO_PATTERN,
   'Mallet': MALLET_DEMO_PATTERN,
   'Pad': PAD_DEMO_PATTERN,
-  'Digital Glitch': GLITCH_DEMO_PATTERN,
+  'Percussion': PERCUSSION_DEMO_PATTERN,
+  'Digital Glitch': PERCUSSION_DEMO_PATTERN,
   'Vintage Lead': VINTAGE_LEAD_DEMO_PATTERN,
   'ep': EP_DEMO_PATTERN,
   'sb': SUB_BASS_DEMO_PATTERN,
   'ml': MALLET_DEMO_PATTERN,
   'pd': PAD_DEMO_PATTERN,
-  'dg': GLITCH_DEMO_PATTERN,
+  'pc': PERCUSSION_DEMO_PATTERN,
+  'dg': PERCUSSION_DEMO_PATTERN,
   'vl': VINTAGE_LEAD_DEMO_PATTERN
 };
 

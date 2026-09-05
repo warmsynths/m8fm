@@ -10,7 +10,7 @@ const ANCHORS: AnchorName[] = [
   'Sub Bass',
   'Mallet',
   'Pad',
-  'Digital Glitch',
+  'Percussion',
   'Vintage Lead'
 ];
 
@@ -85,5 +85,33 @@ describe('DemoSong builder', () => {
 
     const reloaded = loadM8File(bytes).asObject();
     expect(reloaded.name.trim()).toBe('DEMO_EP');
+  });
+
+  it('builds a multi-instrument song for Percussion with Kick, Snare, Closed Hat, and Open Hat', () => {
+    const mapper = new MacroMapper('Percussion');
+    const multiPatches = [
+      mapper.getPatchForPreset(0),
+      mapper.getPatchForPreset(1),
+      mapper.getPatchForPreset(2),
+      mapper.getPatchForPreset(3)
+    ];
+    const pattern = getDemoPatternForMachine('Percussion');
+
+    const song = buildDemoSong(multiPatches[0], pattern, 'PERC_BEAT', multiPatches);
+    expect(song).toBeDefined();
+
+    const bytes = Uint8Array.from(dumpM8File(song));
+    const reloaded = loadM8File(bytes).asObject();
+
+    expect(reloaded.instruments[0].name.trim()).toBe('M8FM KIK');
+    expect(reloaded.instruments[1].name.trim()).toBe('M8FM SNR');
+    expect(reloaded.instruments[2].name.trim()).toBe('M8FM CHH');
+    expect(reloaded.instruments[3].name.trim()).toBe('M8FM OHH');
+
+    // Tracks 0, 1, 2, 3 have chains assigned
+    expect(reloaded.steps[0].tracks[0]).not.toBe(0xff);
+    expect(reloaded.steps[0].tracks[1]).not.toBe(0xff);
+    expect(reloaded.steps[0].tracks[2]).not.toBe(0xff);
+    expect(reloaded.steps[0].tracks[3]).not.toBe(0xff);
   });
 });

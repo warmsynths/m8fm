@@ -29,7 +29,7 @@ import { loadM8File } from 'm8-js';
 
 const SAMPLE_RATE = 44100;
 const ANCHORS: AnchorName[] = [
-  'Electric Piano', 'Sub Bass', 'Mallet', 'Pad', 'Digital Glitch', 'Vintage Lead'
+  'Electric Piano', 'Sub Bass', 'Mallet', 'Pad', 'Percussion', 'Vintage Lead'
 ];
 
 function patchFor(anchor: AnchorName): M8Patch {
@@ -43,6 +43,7 @@ function patchFor(anchor: AnchorName): M8Patch {
 function patchForPreset(anchor: AnchorName, presetIndex: number): M8Patch {
   const machine = MACHINES.find((m) => m.name === anchor)!;
   const mapper = new MacroMapper(anchor);
+  mapper.selectPreset(presetIndex);
   const macroNames = AnchorMacroConfig[anchor];
   machine.presets[presetIndex][1].forEach((value, i) => {
     mapper.setMacro(macroNames[i], value / 100);
@@ -332,6 +333,46 @@ describe('Electric Piano patch', () => {
       expect(slot.bus, `Op ${'ABCD'[opIndex]} bus`).toBe(2);
       expect(slot.target, `Op ${'ABCD'[opIndex]} target`).toBe(MOD_TARGET_LEV);
     }
+  });
+});
+
+describe('Percussion Kick patch', () => {
+  const kick = MacroMapper.getPercussionAnchorPatch(0);
+
+  it('tunes carrier D into deep sub bass (~50 Hz fundamental at note 48)', () => {
+    expect(kick.algo).toBe(0x07);
+    expect(kick.operators[3].ratio).toBe(0);
+    expect(kick.operators[3].ratioFine).toBe(40);
+  });
+
+  it('powers attack transient via MOD 2 envelope rather than a slow pitch dive', () => {
+    expect(kick.envelopes[1].dest).toBe(DEST_MOD2);
+    // Envelope decay is short (< 30 ms) so it acts as an instantaneous transient thud
+    expect(envDecaySeconds(kick.envelopes[1].decay)).toBeLessThan(0.03);
+
+    // Both transient click carrier B and FM body modulator C scale levels from Bus 2
+    for (const opIndex of [1, 2]) {
+      const slot = decodeModSlot(kick.operators[opIndex].modA)!;
+      expect(slot.bus, `Op ${'ABCD'[opIndex]} bus`).toBe(2);
+      expect(slot.target, `Op ${'ABCD'[opIndex]} target`).toBe(MOD_TARGET_LEV);
+    }
+  });
+
+  it('renders a true deep sub fundamental without a boingy pitch sweep', () => {
+    const rendered = render(kick, 0.5, 0.5, 48); // note 48
+    // Count zero-crossings in settled body (0.15s to 0.40s)
+    const sFrame = Math.floor(0.15 * SAMPLE_RATE);
+    const eFrame = Math.floor(0.40 * SAMPLE_RATE);
+    let crossings = 0;
+    for (let i = sFrame; i < eFrame - 1; i++) {
+      if ((rendered.samples[i] >= 0 && rendered.samples[i + 1] < 0) || (rendered.samples[i] < 0 && rendered.samples[i + 1] >= 0)) {
+        crossings++;
+      }
+    }
+    const cycles = crossings / 2;
+    const freqHz = cycles / 0.25;
+    expect(freqHz).toBeGreaterThan(45);
+    expect(freqHz).toBeLessThan(60);
   });
 });
 

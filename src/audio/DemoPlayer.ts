@@ -12,12 +12,14 @@ export class DemoPlayer {
   private engine: FmEngine | null = null;
   private ctx: AudioContext | null = null;
   private stepCallback: ((step: number) => void) | null = null;
+  private specsByTrack: Record<number, any> | null = null;
 
   public play(
     pattern: DemoPattern,
     engine: FmEngine,
     ctx: AudioContext,
-    onStep?: (step: number) => void
+    onStep?: (step: number) => void,
+    specsByTrack?: Record<number, any>
   ) {
     this.stop();
 
@@ -25,6 +27,7 @@ export class DemoPlayer {
     this.engine = engine;
     this.ctx = ctx;
     this.stepCallback = onStep || null;
+    this.specsByTrack = specsByTrack || null;
     this.isRunning = true;
     this.stepIndex = 0;
     this.nextStepTime = ctx.currentTime + 0.02; // Small initial padding
@@ -35,6 +38,7 @@ export class DemoPlayer {
 
   public stop() {
     this.isRunning = false;
+    this.specsByTrack = null;
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
@@ -91,7 +95,8 @@ export class DemoPlayer {
           const voiceId = note.track * 128 + note.note;
           const freq = noteToFrequency(note.note);
           const vel = note.velocity ?? 1.0;
-          this.engine.noteOn(voiceId, freq, vel);
+          const spec = this.specsByTrack ? this.specsByTrack[note.track] : undefined;
+          this.engine.noteOn(voiceId, freq, vel, spec);
 
           // Schedule note-off
           const lengthSteps = note.length ?? 1;

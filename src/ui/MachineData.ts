@@ -169,38 +169,48 @@ export const MACHINES: Machine[] = [
   },
 
   {
-    id: 'dg', name: 'Digital Glitch', icon: [
-      A('M4 6h2M10 6h2M18 6h2', 2, 'square'), A('M6 12h2M12 12h2M16 12h2', 2, 'square', 0), A('M4 18h2M14 18h2M18 18h2', 2, 'square')
+    id: 'pc', name: 'Percussion', icon: [
+      A('M4 4h6v6H4z', 1.5, 'square'), A('M14 4h6v6h-6z', 1.5, 'square'),
+      A('M4 14h6v6H4z', 1.5, 'square'), A('M14 14h6v6h-6z', 1.5, 'square'),
+      A('M12 12h0', 3, 'square', 0)
     ],
     mods: [
-      ['DIGITAL\nDIRT', 'Rows drop out at random — a steady, mechanical corruption.', (v: number) => {
-        const pts = [
-          [4,5], [8,5], [14,5],
-          [6,9], [10,9], [18,9],
-          [4,13], [12,13], [16,13],
-          [8,17], [14,17], [18,17],
-          [6,21], [12,21], [16,21]
-        ];
-        const keep = Math.floor((1 - v) * pts.length);
-        const active = pts.slice(0, Math.max(2, keep));
-        return [A(active.map(p => `M${p[0]} ${p[1]}h2`).join(''), 2)];
-      }],
-      ['LASER\nZAP', 'The beam fires further down the diagonal each cycle.', (v: number) => {
-        const fire = Math.round(v * 16);
+      ['PUNCH /\nSNAP', 'Fast attack transient — the initial crack and pitch snap.', (v: number) => {
+        const p = Math.round(v * 10);
         return [
-          A(`M20 4 ${20-fire} ${4+fire}`, 1.5, 'square', '2 4'), 
-          A('M8 10v6h6'),
-          ...(v > 0.8 ? [A('M4 20 6 18', 1.5)] : [])
+          A(`M4 14h4l3 -${4+p} 3 ${8+p} 2 -${4+p*0.5}h4`, 1.5),
+          A(`M${10-Math.round(v*3)} 4h${4+Math.round(v*6)}`, 1.5, 'square', '2 2')
         ];
       }],
-      ['PULSE\nWIDTH', 'The duty cycle narrows and opens — the wave itself squeezing.', (v: number) => {
-        const squeeze = Math.round(v * 4);
+      ['TONE /\nBODY', 'Fundamental resonant body — tuning and acoustic depth.', (v: number) => {
+        const t = Math.round(v * 5);
         return [
-          A(`M4 16v-8h${4-squeeze}v8h${6+squeeze*2}v-8h${6-squeeze}`, 1.5)
+          A(`M${12-t} ${12-t}h${t*2}v${t*2}h-${t*2}z`, 1.5),
+          A('M4 12h16', 1.5, 'square', '3 3'),
+          A('M12 4v16', 1.5, 'square', '3 3')
+        ];
+      }],
+      ['DECAY', 'Tail duration — tight micro-chock to long ringing wash.', (v: number) => {
+        const d = Math.round(v * 12);
+        return [
+          A(`M4 6v12h${4+d}`, 1.5),
+          A(`M4 6c${2+Math.round(v*6)} 0 ${4+d} 10 ${4+d} 12`, 1.5)
+        ];
+      }],
+      ['DIRT /\nSIZZLE', 'Snare wire rattle, metallic feedback, and harmonic grit.', (v: number) => {
+        const amp = Math.round(v * 6);
+        return [
+          A(`M4 12l2 -${amp} 2 ${amp*2} 2 -${amp*2} 2 ${amp*2} 2 -${amp*2} 2 ${amp*2} 2 -${amp*2} 2 ${amp}`, 1.5),
+          A('M4 18h16', 1.5, 'square', '2 2')
         ];
       }]
     ],
-    presets: [['SHRED', [88, 63, 41]], ['BITCRUSH', [96, 30, 70]], ['ZAP', [40, 92, 25]]]
+    presets: [
+      ['KICK', [50, 40, 60, 20]],
+      ['SNARE', [70, 50, 45, 60]],
+      ['CLOSED HAT', [80, 75, 20, 35]],
+      ['OPEN HAT', [60, 75, 75, 45]]
+    ]
   },
 
   {

@@ -29,7 +29,8 @@ export const EMPTY = 0xff;
 export function buildDemoSong(
   patch: M8Patch,
   pattern: DemoPattern,
-  songName?: string
+  songName?: string,
+  multiPatches?: M8Patch[]
 ): any {
   const song = new Song();
 
@@ -42,8 +43,14 @@ export function buildDemoSong(
   song.name = title || 'M8FM';
   song.tempo = pattern.tempo;
 
-  // Set the current patch as Instrument 00
-  song.instruments[0] = patchToFMSynth(patch);
+  if (multiPatches && multiPatches.length > 0) {
+    multiPatches.forEach((p, idx) => {
+      if (idx < 128) song.instruments[idx] = patchToFMSynth(p);
+    });
+  } else {
+    // Set the current patch as Instrument 00
+    song.instruments[0] = patchToFMSynth(patch);
+  }
 
   // Group notes by track
   const tracksInUse = new Set<number>();
@@ -75,7 +82,8 @@ export function buildDemoSong(
             noteAtStep.velocity !== undefined
               ? clampByte(noteAtStep.velocity * 255)
               : EMPTY;
-          phrase.steps[s] = new PhraseStep(undefined, 0, noteAtStep.note, vol);
+          const instrIdx = (multiPatches && multiPatches.length > trackIdx) ? trackIdx : 0;
+          phrase.steps[s] = new PhraseStep(undefined, instrIdx, noteAtStep.note, vol);
         }
       }
 
@@ -106,8 +114,9 @@ export function buildDemoSong(
 export function serializeDemoSong(
   patch: M8Patch,
   pattern: DemoPattern,
-  songName?: string
+  songName?: string,
+  multiPatches?: M8Patch[]
 ): Uint8Array {
-  const song = buildDemoSong(patch, pattern, songName);
+  const song = buildDemoSong(patch, pattern, songName, multiPatches);
   return Uint8Array.from(dumpM8File(song));
 }

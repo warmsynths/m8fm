@@ -400,7 +400,7 @@ class M8FmRenderer {
         this.spec = msg.spec;
         break;
       case 'noteOn':
-        this.noteOn(msg.noteId, msg.frequency, msg.velocity);
+        this.noteOn(msg.noteId, msg.frequency, msg.velocity, msg.spec);
         break;
       case 'noteOff':
         this.noteOff(msg.noteId);
@@ -418,7 +418,7 @@ class M8FmRenderer {
     }
   }
 
-  noteOn(noteId, frequency, velocity) {
+  noteOn(noteId, frequency, velocity, spec) {
     // Re-use the voice already playing this note, then any idle voice, then the
     // oldest one. The pool is fixed, so voices cannot leak.
     let target = this.voices.find((v) => v.active && v.noteId === noteId);
@@ -426,6 +426,7 @@ class M8FmRenderer {
     if (!target) {
       target = this.voices.reduce((oldest, v) => (v.time > oldest.time ? v : oldest), this.voices[0]);
     }
+    target.spec = spec || this.spec;
     target.noteOn(noteId, frequency, velocity);
   }
 
@@ -652,9 +653,10 @@ class M8FmRenderer {
           const voice = this.voices[v];
           if (!voice.active) continue;
 
-          const sample = this.renderVoice(spec, voice);
+          const voiceSpec = voice.spec || spec;
+          const sample = this.renderVoice(voiceSpec, voice);
           dry += sample;
-          panAccum += spec.pan + this.destAmount(spec, voice, DEST_PAN);
+          panAccum += voiceSpec.pan + this.destAmount(voiceSpec, voice, DEST_PAN);
           voiceCount += 1;
 
           if (Math.abs(sample) < SILENCE_THRESHOLD) {
@@ -666,13 +668,13 @@ class M8FmRenderer {
           // Reclaim the voice as soon as it can no longer make sound. Without
           // this, a patch whose volume envelope has run out would keep
           // rendering forever -- the "one preview and it never stops" bug.
-          if (voice.silentSamples > silenceLimit && (!voice.gate || this.volumeEnvelopeFinished(spec, voice))) {
+          if (voice.silentSamples > silenceLimit && (!voice.gate || this.volumeEnvelopeFinished(voiceSpec, voice))) {
             voice.kill();
           }
 
-          for (let l = 0; l < spec.lfos.length; l++) {
-            if (spec.lfos[l].trigger !== 0) {
-              voice.lfoPhases[l] = wrap(voice.lfoPhases[l] + spec.lfos[l].freq * opDt);
+          for (let l = 0; l < voiceSpec.lfos.length; l++) {
+            if (voiceSpec.lfos[l].trigger !== 0) {
+              voice.lfoPhases[l] = wrap(voice.lfoPhases[l] + voiceSpec.lfos[l].freq * opDt);
             }
           }
         }
