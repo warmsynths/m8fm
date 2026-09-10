@@ -1,49 +1,89 @@
-import { LitElement, html, svg, nothing } from 'lit';
+import { LitElement, html } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
-import { styleMap } from 'lit/directives/style-map.js';
 
 import './style.css';
 import { AudioController } from './audio/AudioController';
-import {
-  M8_ALGOS,
-  M8_ENV_DESTS,
-  M8_FILTER_TYPES,
-  M8_LFO_SHAPES,
-  M8_LFO_TRIGGERS,
-  M8_OSC_SHAPES,
-  hex,
-  modSlotToString,
-  ratioToString
-} from './audio/M8Patch';
 import { AnchorMacroConfig, type AnchorName } from './audio/MacroMapper';
 import { MACHINES } from './ui/MachineData';
-import { SysExParser, type Dx7Patch } from './audio/SysExParser';
-import { DX7ToM8Translator } from './audio/DX7ToM8Translator';
 import { getDemoPatternForMachine } from './audio/DemoPatterns';
 
 const audio = new AudioController();
+(window as any).audio = audio;
 
-function getVars(v: number) {
-  const u = v / 100;
-  return {
-    '--dur': (3.4 - u * 1.9).toFixed(2) + 's',
-    '--amp': (u * 2.3).toFixed(2) + 'px',
-    '--big': (1 + u * 0.5).toFixed(3),
-    '--wide': (1 + u * 0.42).toFixed(3),
-    '--small': (1 - u * 0.45).toFixed(3),
-    '--tight': (1 - u * 0.3).toFixed(3),
-    '--dim': (1 - u * 0.85).toFixed(3),
-    '--re': (1 + u * 0.26).toFixed(3),
-    '--beam': (26 * u).toFixed(1) + 'px',
-    '--tilt': (u * 7).toFixed(1) + 'deg'
-  };
+// 2a — Machine Mood. Tailored stocks per machine from Orbit Meridian 3D
+const STOCK = (h: number, c: number, hues: number[]) => ({
+  gnd: 'oklch(0.936 ' + (c * 0.25).toFixed(3) + ' ' + h + ')',
+  ink: 'oklch(0.27 ' + (c * 0.4).toFixed(3) + ' ' + h + ')',
+  ink2: 'oklch(0.44 ' + (c * 0.4).toFixed(3) + ' ' + h + ')',
+  ink3: 'oklch(0.40 ' + (c * 0.4).toFixed(3) + ' ' + h + ')',
+  line: 'oklch(0.27 ' + (c * 0.4).toFixed(3) + ' ' + h + ' / 0.2)',
+  line2: 'oklch(0.27 ' + (c * 0.4).toFixed(3) + ' ' + h + ' / 0.34)',
+  soft: 'oklch(0.27 ' + (c * 0.4).toFixed(3) + ' ' + h + ' / 0.08)',
+  selBg: 'oklch(0.5 ' + c.toFixed(3) + ' ' + h + ' / 0.13)',
+  acc: 'oklch(0.48 ' + c.toFixed(3) + ' ' + h + ')',
+  accFg: 'oklch(0.965 ' + (c * 0.2).toFixed(3) + ' ' + h + ')',
+  off: 'oklch(0.5 ' + c.toFixed(3) + ' ' + h + ' / 0.22)',
+  hues: hues,
+  chroma: c
+});
+
+const STOCKS: Record<string, ReturnType<typeof STOCK>> = {
+  ep: STOCK(88, 0.05, [88, 104, 72, 120]),
+  sb: STOCK(262, 0.062, [262, 240, 285, 220]),
+  ml: STOCK(155, 0.058, [155, 176, 138, 196]),
+  pd: STOCK(318, 0.055, [318, 342, 296, 270]),
+  pc: STOCK(64, 0.02, [64, 88, 40, 108]),
+  vl: STOCK(205, 0.06, [205, 226, 188, 246])
+};
+
+const INK = {
+  key: 'ink',
+  name: 'Ink',
+  gnd: '#17170f',
+  ink: '#dcd9c6',
+  ink2: '#b9b5a1',
+  ink3: '#928e7c',
+  line: 'rgba(220,217,198,.16)',
+  line2: 'rgba(220,217,198,.3)',
+  soft: 'rgba(220,217,198,.09)',
+  off: 'rgba(220,217,198,.34)',
+  acc: '#dcd9c6',
+  accFg: '#17170f',
+  selBg: 'rgba(220,217,198,.12)',
+  hues: null as number[] | null,
+  chroma: 0
+};
+
+// Orbit geometry: eccentric centers, staggered starts, tapered heads
+const CX = 350;
+const CY = 343;
+const RADII = [296, 252, 208, 164];
+const WIDTHS = [19, 17, 15, 13];
+const ECC: [number, number][] = [[0, 0], [7, -5], [13, -9], [18, -12]];
+const START = [-90, -71, -107, -58];
+const CEN = (i: number): [number, number] => [CX + ECC[i % ECC.length][0], CY + ECC[i % ECC.length][1]];
+
+const THEME_KEY = 'm8fm_theme';
+const TILT_KEY = 'm8fm_tilt';
+const SWAY_KEY = 'm8fm_sway';
+const SPIN_KEY = 'm8fm_spin';
+const PUSH_KEY = 'm8fm_push';
+const PULL_KEY = 'm8fm_pull';
+
+function getStoredTheme(): 'ink' | 'color' {
+  const t = localStorage.getItem(THEME_KEY);
+  return t === 'color' ? 'color' : 'ink';
+}
+
+function getStoredNumber(key: string, def: number): number {
+  const val = localStorage.getItem(key);
+  if (val === null) return def;
+  const num = parseFloat(val);
+  return isNaN(num) ? def : num;
 }
 
 @customElement('fm-studio')
 export class FmStudio extends LitElement {
-  
-  // Since we rely on global styles (like keyframes and fonts)
-  // we render into light DOM.
   createRenderRoot() {
     return this;
   }
@@ -52,42 +92,101 @@ export class FmStudio extends LitElement {
   @state() accessor preset = 0;
   @state() accessor v: Record<string, number> = {};
   @state() accessor dirty = false;
-  @state() accessor adv = false;
-  @state() accessor advMod = false;
   @state() accessor vol = 0.5;
 
   @state() accessor isPlayingDemo = false;
   @state() accessor currentDemoStep = -1;
 
-  @state() accessor dx7Patches: Dx7Patch[] = [];
-  @state() accessor dx7Sel = 0;
-  @state() accessor dx7Adv = false;
-  @state() accessor dx7ManualOps: Set<number> = new Set();
+  // Orbit Meridian 3D options
+  @state() accessor theme: 'ink' | 'color' = getStoredTheme();
+  @state() accessor tilt = getStoredNumber(TILT_KEY, 12);
+  @state() accessor sway = getStoredNumber(SWAY_KEY, 4);
+  @state() accessor spin = getStoredNumber(SPIN_KEY, 44);
+  @state() accessor push = getStoredNumber(PUSH_KEY, 26);
+  @state() accessor pull = getStoredNumber(PULL_KEY, 0);
+  @state() accessor view = 32;
+  @state() accessor turn = 0;
+  @state() accessor isOrbiting = false;
+
+  @state() accessor liveKeyNote: number | null = null;
+  @state() accessor motionOpen = false;
+  @state() accessor machOpen = false;
+  @state() accessor ring = 0;
+  @state() accessor isDraggingRing = false;
+  @state() accessor mobileBrowseOpen = false;
 
   connectedCallback() {
     super.connectedCallback();
     this.selectMachine(0);
+    this.updateBodyBg();
+
+    audio.onNoteTrigger = (note) => {
+      this.liveKeyNote = note;
+      setTimeout(() => {
+        if (this.liveKeyNote === note) {
+          this.liveKeyNote = null;
+        }
+      }, 140);
+    };
+
+    // Close machine popover when clicking outside
+    window.addEventListener('pointerdown', this.handleWindowPointerDown);
   }
 
   disconnectedCallback() {
     super.disconnectedCallback();
     audio.stopDemo();
+    window.removeEventListener('pointerdown', this.handleWindowPointerDown);
+  }
+
+  handleWindowPointerDown = (e: PointerEvent) => {
+    if (this.machOpen) {
+      const target = e.target as HTMLElement;
+      if (!target.closest('[data-mach-dropdown]')) {
+        this.machOpen = false;
+      }
+    }
+  };
+
+  getPal() {
+    if (this.theme === 'ink') return INK;
+    const mach = MACHINES[this.sel];
+    return { key: 'color', ...(STOCKS[mach.id] || STOCKS.ep) };
+  }
+
+  updateBodyBg() {
+    const P = this.getPal();
+    document.body.style.backgroundColor = P.gnd;
+    document.documentElement.style.backgroundColor = P.gnd;
+  }
+
+  toggleTheme() {
+    this.theme = this.theme === 'ink' ? 'color' : 'ink';
+    localStorage.setItem(THEME_KEY, this.theme);
+    this.updateBodyBg();
   }
 
   getVal(mi: number, i: number) {
     const m = MACHINES[mi];
     const key = m.id + i;
-    return this.v[key] !== undefined ? this.v[key] : m.presets[this.preset % m.presets.length][1][i];
+    return this.v[key] !== undefined ? this.v[key] : m.presets[this.preset % m.presets.length][1][i] ?? 50;
   }
 
   setVal(i: number, nv: number) {
-    const key = MACHINES[this.sel].id + i;
-    this.v = { ...this.v, [key]: nv };
-    this.dirty = true;
-    
     const m = MACHINES[this.sel];
-    const macroName = AnchorMacroConfig[m.name as AnchorName][i];
-    audio.setMacro(macroName, nv / 100);
+    const key = m.id + i;
+    const clamped = Math.max(0, Math.min(100, nv));
+    this.v = { ...this.v, [key]: clamped };
+    this.dirty = true;
+
+    const macroName = AnchorMacroConfig[m.name as AnchorName]?.[i];
+    if (macroName) {
+      audio.setMacro(macroName, clamped / 100);
+    }
+  }
+
+  hx(v: number) {
+    return Math.round(Math.max(0, Math.min(100, v)) / 100 * 255).toString(16).toUpperCase().padStart(2, '0');
   }
 
   selectMachine(idx: number) {
@@ -95,14 +194,19 @@ export class FmStudio extends LitElement {
     this.preset = 0;
     this.v = {};
     this.dirty = false;
-    
+    this.ring = 0;
+    this.machOpen = false;
+    this.mobileBrowseOpen = false;
+
     const m = MACHINES[idx];
     audio.loadAnchor(m.name as AnchorName);
-    
+
     for (let i = 0; i < m.mods.length; i++) {
       const val = this.getVal(idx, i);
-      const macroName = AnchorMacroConfig[m.name as AnchorName][i];
-      audio.setMacro(macroName, val / 100);
+      const macroName = AnchorMacroConfig[m.name as AnchorName]?.[i];
+      if (macroName) {
+        audio.setMacro(macroName, val / 100);
+      }
     }
 
     if (this.isPlayingDemo) {
@@ -111,55 +215,24 @@ export class FmStudio extends LitElement {
         this.currentDemoStep = step;
       });
     }
-  }
 
-  async handleSyxUpload(e: Event) {
-    const input = e.target as HTMLInputElement;
-    if (!input.files || input.files.length === 0) return;
-    const file = input.files[0];
-    const buffer = await file.arrayBuffer();
-    try {
-      this.dx7Patches = SysExParser.parseFile(buffer);
-      this.selectDx7Patch(0);
-    } catch (err) {
-      alert(err);
-    }
-    input.value = ''; // Reset so the same file can be loaded again
-  }
-
-  selectDx7Patch(idx: number) {
-    if (this.dx7Patches.length === 0) return;
-    this.dx7Sel = idx;
-    const keepIndices = this.dx7ManualOps.size === 4 ? Array.from(this.dx7ManualOps) : undefined;
-    audio.loadRawPatch(DX7ToM8Translator.translate(this.dx7Patches[idx], keepIndices));
-  }
-
-  toggleDx7Op(opIndex: number) {
-    const newSet = new Set(this.dx7ManualOps);
-    if (newSet.has(opIndex)) {
-      newSet.delete(opIndex);
-    } else {
-      if (newSet.size >= 4) {
-        // Remove the first one added to keep max 4
-        newSet.delete(Array.from(newSet)[0]);
-      }
-      newSet.add(opIndex);
-    }
-    this.dx7ManualOps = newSet;
-    this.selectDx7Patch(this.dx7Sel);
+    this.updateBodyBg();
   }
 
   selectPreset(idx: number) {
     this.preset = idx;
     this.v = {};
     this.dirty = false;
-    
+
     const m = MACHINES[this.sel];
     audio.selectPreset(idx);
+
     for (let i = 0; i < m.mods.length; i++) {
       const val = this.getVal(this.sel, i);
-      const macroName = AnchorMacroConfig[m.name as AnchorName][i];
-      audio.setMacro(macroName, val / 100);
+      const macroName = AnchorMacroConfig[m.name as AnchorName]?.[i];
+      if (macroName) {
+        audio.setMacro(macroName, val / 100);
+      }
     }
   }
 
@@ -178,13 +251,10 @@ export class FmStudio extends LitElement {
     }
   }
 
-  getPatchFilename(ext: 'm8i' | 'm8s') {
+  getPatchFilename(ext: string) {
     const m = MACHINES[this.sel];
-    const pi = this.preset % m.presets.length;
-    const presetName = m.presets[pi][0];
-    const cleanMach = m.name.replace(/[^a-zA-Z0-9_\-]/g, '_');
-    const cleanPreset = presetName.replace(/[^a-zA-Z0-9_\-]/g, '_');
-    return `${cleanMach}_${cleanPreset}.${ext}`;
+    const p = m.presets[this.preset % m.presets.length][0];
+    return `${m.name.replace(/[^a-zA-Z0-9_\-]/g, '_')}_${p.replace(/[^a-zA-Z0-9_\-]/g, '_')}.${ext}`;
   }
 
   exportInstrument() {
@@ -196,540 +266,812 @@ export class FmStudio extends LitElement {
     const m = MACHINES[this.sel];
     const pattern = getDemoPatternForMachine(m.name);
     const filename = this.getPatchFilename('m8s');
-    const songName = `M8FM ${m.name}`.slice(0, 12);
-    audio.exportSong(filename, pattern, songName);
+    const title = `M8FM ${m.name}`.slice(0, 12);
+    audio.exportSong(filename, pattern, title);
   }
 
-  downloadM8Instrument() {
-    this.exportInstrument();
+  // 3D Geometry and Perspective Math
+  tiltOf(i: number) { return i * this.tilt; }
+  yawOf(i: number) { return -i * 4; }
+  zOf(i: number) {
+    const baseDepth = i * (this.push - this.pull);
+    return baseDepth + (i === this.ring ? 24 : 0);
   }
 
-  handleDown(e: PointerEvent, index: number, horiz: boolean) {
-    e.preventDefault();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    
-    const p0 = horiz ? e.clientX : e.clientY;
-    const v0 = this.getVal(this.sel, index);
-    
+  frame(tilt: number, yaw: number, z: number, shapes: [number, number, number][]) {
+    const t = tilt * Math.PI / 180, y = yaw * Math.PI / 180, P = 1500;
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    shapes.forEach(sh => {
+      for (let k = 0; k < 48; k++) {
+        const a = k / 48 * Math.PI * 2;
+        const px = sh[1] + sh[0] * Math.cos(a), py = sh[2] + sh[0] * Math.sin(a);
+        const xa = px * Math.cos(y) + z * Math.sin(y), za = -px * Math.sin(y) + z * Math.cos(y);
+        const yb = py * Math.cos(t) - za * Math.sin(t), zb = py * Math.sin(t) + za * Math.cos(t);
+        const s = P / (P - zb), sx = xa * s, sy = yb * s;
+        if (sx < x0) x0 = sx; if (sx > x1) x1 = sx;
+        if (sy < y0) y0 = sy; if (sy > y1) y1 = sy;
+      }
+    });
+    return { dx: -(x0 + x1) / 2, dy: -(y0 + y1) / 2, w: x1 - x0, h: y1 - y0 };
+  }
+
+  place(tilt: number, yaw: number, z: number, shapes: [number, number, number][], sc = 1, fit = false) {
+    const f = this.frame(tilt, yaw, z, shapes);
+    const s = fit ? Math.min(sc, 660 / f.w, 648 / f.h) : sc;
+    return 'translate(' + (f.dx * s).toFixed(1) + 'px,' + (f.dy * s).toFixed(1) + 'px) scale('
+      + s + ') rotateX(' + tilt.toFixed(1) + 'deg) rotateY(' + yaw.toFixed(1)
+      + 'deg) translateZ(' + z.toFixed(0) + 'px)';
+  }
+
+  tf(i: number) {
+    const c = CEN(i);
+    const r = RADII[i % RADII.length];
+    return this.place(this.tiltOf(i), this.yawOf(i), this.zOf(i),
+      [[r, c[0] - 350, c[1] - 343]], 1);
+  }
+
+  // Tapered ribbon path generator from Orbit Meridian 3D
+  segD(i: number, v: number, k = 1, shift = 0): string {
+    const rr = RADII[i % RADII.length];
+    const sweep = (Math.max(0, Math.min(100, v)) / 100) * 360;
+    if (sweep < 1.2) return '';
+    const c = CEN(i);
+    const n = Math.max(6, Math.ceil(sweep / 4));
+    const sc = k;
+    const sh = shift;
+    const wide = WIDTHS[i % WIDTHS.length];
+    const thin = wide * 0.34;
+    const w = (t: number) => (thin + (wide - thin) * Math.pow(t, 0.62)) * sc;
+    const mid = (t: number) => (thin + (wide - thin) * Math.pow(t, 0.62)) * sh;
+    const pt = (t: number, off: number): [string, string] => {
+      const ang = (START[i % START.length] + sweep * t) * Math.PI / 180;
+      const r = rr + off;
+      return [(c[0] + r * Math.cos(ang)).toFixed(2), (c[1] + r * Math.sin(ang)).toFixed(2)];
+    };
+    const p0 = pt(0, mid(0) + w(0) / 2);
+    let d = `M${p0[0]} ${p0[1]}`;
+    for (let k2 = 1; k2 <= n; k2++) {
+      const t = k2 / n;
+      const p = pt(t, mid(t) + w(t) / 2);
+      d += `L${p[0]} ${p[1]}`;
+    }
+    for (let k2 = n; k2 >= 0; k2--) {
+      const t = k2 / n;
+      const p = pt(t, mid(t) - w(t) / 2);
+      d += `L${p[0]} ${p[1]}`;
+    }
+    return d + 'Z';
+  }
+
+  arc(i: number, on: boolean) {
+    const P = this.getPal();
+    if (!P.hues) return on ? P.acc : P.off;
+    const h = P.hues[i % P.hues.length];
+    const l = on ? (0.42 + (i % 2) * 0.03) : (0.63 + (i % 2) * 0.025);
+    const c = (P.chroma * (on ? 2.1 : 1.25)).toFixed(3);
+    return `oklch(${l.toFixed(3)} ${c} ${h})`;
+  }
+
+  arcAt(i: number, on: boolean, dl: number) {
+    const P = this.getPal();
+    if (!P.hues) return on ? P.acc : P.off;
+    const l = Math.max(0.2, Math.min(0.9, (on ? 0.42 + (i % 2) * 0.03 : 0.63 + (i % 2) * 0.025) + dl));
+    return `oklch(${l.toFixed(3)} ${(P.chroma * (on ? 2.1 : 1.25)).toFixed(3)} ${P.hues[i % P.hues.length]})`;
+  }
+
+  waveOf(i: number) {
+    if (!this.isPlayingDemo) return 'none';
+    const bar = 16 * 0.145;
+    return 'o-wave ' + bar.toFixed(3) + 's ease-in-out infinite ' + (-(bar - i * 0.145)).toFixed(3) + 's';
+  }
+
+  orbitOf() {
+    return this.spin > 0 ? `o-orb ${this.spin.toFixed(1)}s ease-in-out infinite` : 'none';
+  }
+
+  // Pointer interactions
+  startDrag(ringIdx: number, e: PointerEvent, stage: HTMLElement) {
+    const r = stage.getBoundingClientRect(), k = r.width / 700, c0 = CEN(ringIdx);
+    const cx = r.left + c0[0] * k, cy = r.top + c0[1] * k;
+    const ang = (x: number, y: number) => Math.atan2(y - cy, x - cx) * 180 / Math.PI;
+    let last = ang(e.clientX, e.clientY);
+    let v = this.getVal(this.sel, ringIdx);
+    this.isDraggingRing = true;
+
     const move = (ev: PointerEvent) => {
-      const d = horiz ? (ev.clientX - p0) * 0.42 : (p0 - ev.clientY) * 0.55;
-      this.setVal(index, Math.max(0, Math.min(100, v0 + d)));
+      const a = ang(ev.clientX, ev.clientY);
+      let d = a - last;
+      if (d > 180) d -= 360; else if (d < -180) d += 360;
+      last = a;
+      v = Math.max(0, Math.min(100, v + d / 360 * 100 * (ev.shiftKey ? 0.22 : 1)));
+      this.setVal(ringIdx, v);
     };
-    const up = () => { 
-      window.removeEventListener('pointermove', move); 
-      window.removeEventListener('pointerup', up); 
+
+    const up = () => {
+      this.isDraggingRing = false;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
     };
-    window.addEventListener('pointermove', move); 
+
+    window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
   }
 
-  handleWheel(e: WheelEvent, index: number) {
+  handleRingPointerDown(i: number, e: PointerEvent) {
     e.preventDefault();
-    this.setVal(index, Math.max(0, Math.min(100, this.getVal(this.sel, index) - e.deltaY * 0.12)));
+    e.stopPropagation();
+    this.ring = i;
+    const stage = (e.currentTarget as HTMLElement).closest('[data-stage]') as HTMLElement;
+    if (stage) this.startDrag(i, e, stage);
   }
 
-  handleVolDown(e: PointerEvent) {
+  handleOrbitPointerDown = (e: PointerEvent) => {
+    const stage = e.currentTarget as HTMLElement;
+    const bands = stage.querySelectorAll<SVGCircleElement>('circle[stroke-width="38"]');
+    if (!bands.length) return this.startOrbit(e, stage);
+    let targetRing = -1, best = 1e9;
+    for (let i = 0; i < bands.length; i++) {
+      const b = bands[i].getBoundingClientRect();
+      const mx = b.left + b.width / 2, my = b.top + b.height / 2;
+      const rx = Math.max(8, b.width / 2), ry = Math.max(8, b.height / 2);
+      const u = Math.hypot((e.clientX - mx) / rx, (e.clientY - my) / ry);
+      const d = Math.abs(u - 1) * Math.min(rx, ry);
+      if (d < best) { best = d; targetRing = i % 4; }
+    }
+    if (targetRing < 0 || best > 28) {
+      return this.startOrbit(e, stage);
+    }
     e.preventDefault();
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    
-    const p0 = e.clientX;
-    const v0 = this.vol;
-    
+    this.ring = targetRing;
+    this.startDrag(targetRing, e, stage);
+  };
+
+  startOrbit = (e: PointerEvent, stage: HTMLElement) => {
+    const x0 = e.clientX, y0 = e.clientY;
+    const v0 = this.view;
+    const t0 = this.turn;
+    try { stage.setPointerCapture(e.pointerId); } catch (err) {}
+    this.isOrbiting = true;
+
+    const mv = (ev: PointerEvent) => {
+      this.view = Math.max(0, Math.min(72, v0 - (ev.clientY - y0) * 0.28));
+      this.turn = t0 + (ev.clientX - x0) * 0.3;
+    };
+
+    const up = () => {
+      this.isOrbiting = false;
+      stage.removeEventListener('pointermove', mv);
+      stage.removeEventListener('pointerup', up);
+      stage.removeEventListener('pointercancel', up);
+    };
+
+    stage.addEventListener('pointermove', mv);
+    stage.addEventListener('pointerup', up);
+    stage.addEventListener('pointercancel', up);
+  };
+
+  handleParamDrag(i: number, e: PointerEvent) {
+    e.preventDefault();
+    this.ring = i;
+    const el = e.currentTarget as HTMLElement;
+    const TRAVEL = 260;
+    const x0 = e.clientX;
+    const v0 = this.getVal(this.sel, i);
+    el.setPointerCapture(e.pointerId);
+
     const move = (ev: PointerEvent) => {
-      const d = (ev.clientX - p0) * 0.005;
-      this.vol = Math.max(0, Math.min(1, v0 + d));
+      const nv = Math.max(0, Math.min(100, v0 + (ev.clientX - x0) / TRAVEL * 100));
+      this.setVal(i, nv);
+    };
+
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+    };
+
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  }
+
+  handleMotionDrag(key: 'view' | 'tilt' | 'sway' | 'spin' | 'push' | 'pull', min: number, max: number, step: number, e: PointerEvent) {
+    e.preventDefault();
+    const el = e.currentTarget as HTMLElement;
+    const w = el.getBoundingClientRect().width || 180;
+    const x0 = e.clientX;
+    const v0 = this[key];
+    el.setPointerCapture(e.pointerId);
+
+    const move = (ev: PointerEvent) => {
+      let n = v0 + (ev.clientX - x0) / w * (max - min);
+      n = Math.max(min, Math.min(max, Math.round(n / step) * step));
+      if (key === 'push') {
+        this.push = n;
+        localStorage.setItem(PUSH_KEY, String(n));
+      } else if (key === 'pull') {
+        this.pull = n;
+        localStorage.setItem(PULL_KEY, String(n));
+      } else if (key === 'tilt') {
+        this.tilt = n;
+        localStorage.setItem(TILT_KEY, String(n));
+      } else if (key === 'sway') {
+        this.sway = n;
+        localStorage.setItem(SWAY_KEY, String(n));
+      } else if (key === 'spin') {
+        this.spin = n;
+        localStorage.setItem(SPIN_KEY, String(n));
+      } else {
+        this[key] = n;
+      }
+    };
+
+    const up = () => {
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointercancel', up);
+    };
+
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  }
+
+  handleVolDrag = (e: PointerEvent) => {
+    e.preventDefault();
+    const bar = e.currentTarget as HTMLElement;
+    const set = (cx: number) => {
+      const r = bar.getBoundingClientRect();
+      this.vol = Math.max(0, Math.min(1, (cx - r.left) / r.width));
       audio.setVolume(this.vol);
     };
-    const up = () => { 
-      window.removeEventListener('pointermove', move); 
-      window.removeEventListener('pointerup', up); 
+    set(e.clientX);
+    const move = (ev: PointerEvent) => set(ev.clientX);
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
     };
-    window.addEventListener('pointermove', move); 
+    window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-  }
+  };
 
   handleVolWheel(e: WheelEvent) {
     e.preventDefault();
     this.vol = Math.max(0, Math.min(1, this.vol - e.deltaY * 0.001));
     audio.setVolume(this.vol);
   }
-  
-  renderPaths(paths: any[]) {
-    const shadow = paths.map(p => svg`<path d="${p.d}" stroke-width="${p.w}" stroke-linecap="${p.c}" stroke-linejoin="${p.c === 'round' ? 'round' : 'miter'}" stroke-dasharray="${p.s}" style="${p.style}" stroke="url(#checker)" transform="translate(1.5, 1.5)" opacity="0.7"></path>`);
-    const main = paths.map(p => svg`<path d="${p.d}" stroke-width="${p.w}" stroke-linecap="${p.c}" stroke-linejoin="${p.c === 'round' ? 'round' : 'miter'}" stroke-dasharray="${p.s}" style="${p.style}" stroke="currentColor"></path>`);
-    return [...shadow, ...main];
+
+  // Dual-hemisphere depth rendering for desktop
+  renderDesktopRing(i: number, v: number, on: boolean) {
+    const c = CEN(i);
+    const rr = RADII[i % RADII.length];
+    const ang = (START[i % START.length] + (v / 100) * 360) * Math.PI / 180;
+    const op = on ? 1 : [1, 0.84, 0.72, 0.6][i % 4];
+    const gid = `gr_d_${i}`;
+    const gy0 = (c[1] - rr).toFixed(0);
+    const gy1 = (c[1] + rr).toFixed(0);
+    const cFar = this.arcAt(i, on, 0.13);
+    const cNear = this.arcAt(i, on, -0.07);
+    const arcColor = this.arc(i, on);
+    const d = this.segD(i, v);
+    const hx = (c[0] + rr * Math.cos(ang)).toFixed(1);
+    const hy = (c[1] + rr * Math.sin(ang)).toFixed(1);
+    const hr = on ? 9 : 6;
+
+    return html`
+      <div style="position:absolute;inset:0;transform-style:preserve-3d;pointer-events:none;animation:${this.waveOf(i)}">
+        <!-- Upper hemisphere -->
+        <div style="position:absolute;left:0;right:0;top:-25%;height:75%;overflow:hidden;pointer-events:none;transform-origin:50% 100%;transition:transform 460ms cubic-bezier(.16,1,.3,1),opacity 460ms cubic-bezier(.16,1,.3,1);opacity:${op};transform:${this.tf(i)}">
+          <svg viewBox="0 0 700 686" fill="none" preserveAspectRatio="xMidYMid meet" style="position:absolute;left:0;top:33.333%;width:100%;height:133.333%;overflow:visible;pointer-events:none">
+            <defs>
+              <linearGradient id="${gid}" x1="0" y1="${gy0}" x2="0" y2="${gy1}" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stop-color="${cFar}"></stop>
+                <stop offset="1" stop-color="${cNear}"></stop>
+              </linearGradient>
+            </defs>
+            <circle cx="${c[0]}" cy="${c[1]}" r="${rr}" stroke="${on ? 'var(--line2)' : 'var(--line)'}" stroke-width="${on ? 1.4 : 1}"></circle>
+            <path d="${d}" fill="url(#${gid})"></path>
+            <circle cx="${hx}" cy="${hy}" r="${hr}" fill="${arcColor}" style="transition:r 140ms cubic-bezier(.23,1,.32,1)"></circle>
+            <circle @pointerdown=${(e: PointerEvent) => this.handleRingPointerDown(i, e)} cx="${c[0]}" cy="${c[1]}" r="${rr}" stroke="transparent" stroke-width="38" style="pointer-events:stroke;cursor:ew-resize"></circle>
+          </svg>
+        </div>
+
+        <!-- Lower hemisphere -->
+        <div style="position:absolute;left:0;right:0;top:50%;height:75%;overflow:hidden;pointer-events:none;transform-origin:50% 0%;transition:transform 460ms cubic-bezier(.16,1,.3,1),opacity 460ms cubic-bezier(.16,1,.3,1);opacity:${op};transform:${this.tf(i)}">
+          <svg viewBox="0 0 700 686" fill="none" preserveAspectRatio="xMidYMid meet" style="position:absolute;left:0;top:-66.667%;width:100%;height:133.333%;overflow:visible;pointer-events:none">
+            <circle cx="${c[0]}" cy="${c[1]}" r="${rr}" stroke="${on ? 'var(--line2)' : 'var(--line)'}" stroke-width="${on ? 1.4 : 1}"></circle>
+            <path d="${d}" fill="url(#${gid})"></path>
+            <circle cx="${hx}" cy="${hy}" r="${hr}" fill="${arcColor}" style="transition:r 140ms cubic-bezier(.23,1,.32,1)"></circle>
+            <circle @pointerdown=${(e: PointerEvent) => this.handleRingPointerDown(i, e)} cx="${c[0]}" cy="${c[1]}" r="${rr}" stroke="transparent" stroke-width="38" style="pointer-events:stroke;cursor:ew-resize"></circle>
+          </svg>
+        </div>
+      </div>
+    `;
+  }
+
+  // Single-plane rendering for mobile
+  renderMobileRing(i: number, v: number, on: boolean) {
+    const c = CEN(i);
+    const rr = RADII[i % RADII.length];
+    const ang = (START[i % START.length] + (v / 100) * 360) * Math.PI / 180;
+    const op = on ? 1 : [1, 0.84, 0.72, 0.6][i % 4];
+    const gid = `gr_m_${i}`;
+    const gy0 = (c[1] - rr).toFixed(0);
+    const gy1 = (c[1] + rr).toFixed(0);
+    const cFar = this.arcAt(i, on, 0.13);
+    const cNear = this.arcAt(i, on, -0.07);
+    const arcColor = this.arc(i, on);
+    const d = this.segD(i, v);
+    const hx = (c[0] + rr * Math.cos(ang)).toFixed(1);
+    const hy = (c[1] + rr * Math.sin(ang)).toFixed(1);
+    const hr = on ? 9 : 6;
+
+    return html`
+      <div style="position:absolute;inset:0;transform-style:preserve-3d;pointer-events:none;animation:${this.waveOf(i)}">
+        <div style="position:absolute;inset:0;transform-style:preserve-3d;pointer-events:none;transition:transform 460ms cubic-bezier(.16,1,.3,1),opacity 460ms cubic-bezier(.16,1,.3,1);opacity:${op};transform:${this.tf(i)}">
+          <svg viewBox="0 0 700 686" fill="none" style="width:100%;height:100%;overflow:visible;pointer-events:none">
+            <defs>
+              <linearGradient id="${gid}" x1="0" y1="${gy0}" x2="0" y2="${gy1}" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stop-color="${cFar}"></stop>
+                <stop offset="1" stop-color="${cNear}"></stop>
+              </linearGradient>
+            </defs>
+            <circle cx="${c[0]}" cy="${c[1]}" r="${rr}" stroke="${on ? 'var(--line2)' : 'var(--line)'}" stroke-width="${on ? 1.4 : 1}"></circle>
+            <path d="${d}" fill="url(#${gid})"></path>
+            <circle cx="${hx}" cy="${hy}" r="${hr}" fill="${arcColor}" style="transition:r 140ms cubic-bezier(.23,1,.32,1)"></circle>
+            <circle @pointerdown=${(e: PointerEvent) => this.handleRingPointerDown(i, e)} cx="${c[0]}" cy="${c[1]}" r="${rr}" stroke="transparent" stroke-width="38" style="pointer-events:stroke;cursor:grab"></circle>
+          </svg>
+        </div>
+      </div>
+    `;
   }
 
   render() {
     const mi = this.sel;
     const mach = MACHINES[mi];
     const pi = this.preset % mach.presets.length;
-    const vals = mach.mods.map((_, i) => this.getVal(mi, i));
+    const P = this.getPal();
+    const vals = [0, 1, 2, 3].map(i => this.getVal(mi, i));
+    const activeVal = vals[this.ring] ?? vals[0];
+    const activeMod = mach.mods[this.ring] || mach.mods[0];
+    const activeModName = activeMod ? activeMod[0] : '';
+    const activeModHint = activeMod ? activeMod[2] : '';
+
+    const eyeLeft = ((CX + ECC[3][0] * 0.72) / 700 * 100).toFixed(2) + '%';
+    const eyeTop = ((CY + ECC[3][1] * 0.72) / 686 * 100).toFixed(2) + '%';
+
+    const palVars = `--gnd:${P.gnd};--ink:${P.ink};--ink2:${P.ink2};--ink3:${P.ink3};--line:${P.line};--line2:${P.line2};--soft:${P.soft};--acc:${P.acc};--accFg:${P.accFg};--dotc:${P.line};--selbg:${P.selBg};--turn:${this.turn.toFixed(2)}deg;--view:${this.view}deg;--nview:${-this.view}deg;--sway:${this.sway}deg;`;
+
     return html`
       <div id="app">
-        <svg width="0" height="0" style="position:absolute;visibility:hidden">
-          <defs>
-            <pattern id="checker" width="2" height="2" patternUnits="userSpaceOnUse">
-              <rect x="0" y="0" width="1" height="1" fill="currentColor"/>
-              <rect x="1" y="1" width="1" height="1" fill="currentColor"/>
-            </pattern>
-          </defs>
-        </svg>
-        <!-- Desktop Layout -->
-        <div class="desktop-view" style="width:820px;flex:none;background:#e2e0dc;border:1px solid rgba(0,0,0,.12);border-radius:7px;overflow:hidden;flex-direction:column;max-height:100%">
-          
-          <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 18px;border-bottom:1px solid rgba(0,0,0,.12)">
-            <div style="display:flex;align-items:center;gap:14px">
-              <div style="display:flex;align-items:center;gap:9px">
-                <div style="width:8px;height:8px;border-radius:50%;background:#17170f"></div>
-                <div style="font:500 10.5px 'JetBrains Mono',monospace;letter-spacing:.18em">FM LAYER</div>
-              </div>
+        <div class="orbit-frame" style="${palVars}">
 
-              <!-- Demo Play / Stop Button -->
-              <button type="button" @click=${this.toggleDemo}
-                style="display:flex;align-items:center;gap:7px;padding:5px 10px;border-radius:4px;cursor:pointer;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.12em;transition:all 150ms ease;${this.isPlayingDemo ? 'background:#17170f;color:#dcd9c6;border:1px solid #17170f;box-shadow:0 0 8px rgba(0,0,0,0.18)' : 'background:transparent;color:#17170f;border:1px solid rgba(0,0,0,.22)'}">
-                ${this.isPlayingDemo ? html`
-                  <span style="display:inline-block;width:7px;height:7px;background:#dcd9c6;border-radius:1px"></span>
-                  <span>STOP DEMO</span>
-                  <span style="font-size:9.5px;color:#dcd9c6;opacity:0.75;margin-left:3px;font-variant-numeric:tabular-nums">${this.currentDemoStep >= 0 ? String(this.currentDemoStep + 1).padStart(2, '0') : ''}</span>
-                ` : html`
-                  <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
-                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                  </svg>
-                  <span>PLAY DEMO</span>
-                `}
-              </button>
-            </div>
-
-            <div style="display:flex;align-items:center;gap:10px">
-              <div @pointerdown=${this.handleVolDown} @wheel=${this.handleVolWheel} style="display:flex;align-items:center;gap:8px;padding:5px 9px;border:1px solid rgba(0,0,0,.15);border-radius:4px;cursor:ew-resize;user-select:none;touch-action:none">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#17170f" stroke-width="2">
-                  <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
-                  <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                </svg>
-                <div style="width:40px;height:4px;background:rgba(23,23,15,.16);border-radius:2px;overflow:hidden">
-                  <div style="height:100%;width:${this.vol * 100}%;background:#17170f"></div>
-                </div>
-                <div style="font:500 10px 'JetBrains Mono',monospace;color:#17170f;width:24px;text-align:right">${Math.round(this.vol * 100)}</div>
-              </div>
-
-              <!-- Hidden DX7 stuff -->
-              <input type="file" id="syx-upload" accept=".syx" style="display:none" @change=${this.handleSyxUpload} />
-              <button type="button" @click=${() => this.renderRoot.querySelector('#syx-upload')?.dispatchEvent(new MouseEvent('click'))} style="display:none; border:1px solid #101010;background:transparent;color:#101010;padding:8px 13px;border-radius:4px;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.14em;white-space:nowrap">LOAD .SYX</button>
-
-              <!-- Export Buttons -->
-              <div style="display:flex;align-items:center;gap:6px">
-                <button type="button" @click=${this.exportInstrument} title="Export M8 Instrument (.m8i)"
-                  style="display:flex;align-items:center;gap:5px;border:1px solid rgba(0,0,0,.25);background:transparent;color:#101010;padding:7px 10px;border-radius:4px;cursor:pointer;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.12em;white-space:nowrap;transition:background 120ms ease">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                    <polyline points="7 10 12 15 17 10"></polyline>
-                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                  </svg>
-                  <span>EXPORT .M8I</span>
-                </button>
-
-                <button type="button" @click=${this.exportSong} title="Export M8 Song (.m8s) with Demo Pattern"
-                  style="display:flex;align-items:center;gap:5px;border:1px solid #101010;background:#101010;color:#fff;padding:7px 11px;border-radius:4px;cursor:pointer;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.12em;white-space:nowrap;box-shadow:0 1px 3px rgba(0,0,0,0.18);transition:transform 120ms ease">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M9 18V5l12-2v13"></path>
-                    <circle cx="6" cy="18" r="3"></circle>
-                    <circle cx="18" cy="16" r="3"></circle>
-                  </svg>
-                  <span>EXPORT .M8S</span>
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          ${false && this.dx7Patches.length > 0 ? html`
-          <div style="padding:16px 18px;border-bottom:1px solid rgba(0,0,0,.12);background:#dcd9c6;display:flex;flex-direction:column;gap:12px">
-            <div style="display:flex;align-items:center;justify-content:space-between">
-              <div style="font:700 14px 'Space Grotesk',sans-serif">DX7 Bank Loaded (${this.dx7Patches.length} patches)</div>
-              <button type="button" @click=${() => { this.dx7Patches = []; this.selectMachine(0); }} style="background:none;border:none;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;text-decoration:underline">CLOSE</button>
-            </div>
-            <div style="display:grid;grid-template-columns:repeat(4, 1fr);gap:6px">
-              ${this.dx7Patches.map((p, i) => html`
-                <button type="button" @click=${() => this.selectDx7Patch(i)} style="padding:6px;border:1px solid ${i === this.dx7Sel ? '#17170f' : 'rgba(0,0,0,.12)'};background:${i === this.dx7Sel ? '#17170f' : '#fff'};color:${i === this.dx7Sel ? '#fff' : '#17170f'};border-radius:4px;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-                  ${String(i + 1).padStart(2, '0')}. ${p.name}
-                </button>
-              `)}
-            </div>
+          <!-- ==================== DESKTOP LAYOUT (>800px) ==================== -->
+          <div class="desktop-view">
             
-            <div style="display:flex;align-items:center;gap:16px;margin-top:4px">
-              <button type="button" @click=${() => this.dx7Adv = !this.dx7Adv} style="background:none;border:none;padding:0;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.5);display:flex;align-items:center;gap:7px;width:fit-content">
-                <span style="display:inline-block;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;transform:rotate(${this.dx7Adv ? '90deg' : '0deg'})"></span>ADVANCED DX7 ROUTING
-              </button>
+            <!-- Left: 3D Dial Stage Area -->
+            <div style="flex:1;min-width:0;height:100%;min-height:0;display:flex;justify-content:center;align-items:center;position:relative;overflow:hidden">
+              <!-- Full-bleed background dot grid covering entire stage edge-to-edge -->
+              <div style="position:absolute;inset:0;background-image:radial-gradient(var(--dotc) 1px,transparent 1px);background-size:9px 9px;opacity:.28;pointer-events:none"></div>
+
+              <div @pointerdown=${this.handleOrbitPointerDown}
+                style="position:relative;aspect-ratio:700/686;width:100%;max-width:100%;max-height:100%;cursor:grab;touch-action:none;user-select:none;perspective:1020px;perspective-origin:50% 50%"
+                data-stage="1">
+
+                <!-- 3D Transform Container with Tilt, Camera Turn, Sway and Spin -->
+                <div style="position:absolute;inset:6% 4%;pointer-events:none;transform-style:preserve-3d;transform:rotateX(var(--view,32deg)) rotateY(var(--turn,0deg))">
+                  
+                  <!-- Center Eye Numerical Readout facing viewer directly -->
+                  <div style="position:absolute;left:${eyeLeft};top:${eyeTop};transform:translate(-50%,-52%) rotateY(calc(var(--turn,0deg) * -1)) rotateX(var(--nview,-32deg));transform-style:flat;display:flex;flex-direction:column;align-items:center;gap:9px;pointer-events:none">
+                    <div style="font:700 clamp(38px, 9vmin, 76px)/1 'JetBrains Mono',monospace;letter-spacing:-.035em;color:var(--ink);animation:o-swell 6.2s ease-in-out infinite">
+                      ${activeVal.toFixed(1)}
+                    </div>
+                    <div style="display:flex;align-items:center;gap:9px">
+                      <div style="width:16px;height:1px;background:var(--line2)"></div>
+                      <div style="font:500 clamp(8px, 1.5vmin, 10px)/1 'JetBrains Mono',monospace;letter-spacing:.26em;color:var(--ink2)">
+                        ${activeModName}
+                      </div>
+                      <div style="width:16px;height:1px;background:var(--line2)"></div>
+                    </div>
+                  </div>
+
+                  <!-- Ring Stack with Orbit Spin & Drift -->
+                  <div style="position:absolute;inset:0;pointer-events:none;transform-style:preserve-3d;animation:${this.orbitOf()};animation-play-state:${this.isDraggingRing ? 'paused' : 'running'}">
+                    <div style="position:absolute;inset:0;pointer-events:none;transform-style:preserve-3d;animation:o-drift 38s linear infinite">
+
+                      <!-- 4 Depth-Shaded Split-Plane Rings -->
+                      ${[0, 1, 2, 3].map(i => this.renderDesktopRing(i, vals[i], i === this.ring))}
+
+                    </div>
+                  </div>
+                </div>
+
+              </div>
             </div>
 
-            ${this.dx7Adv ? html`
-              <div style="background:rgba(255,255,255,0.4);border-radius:4px;padding:12px;display:flex;flex-direction:column;gap:8px">
-                <div style="font:400 10px 'JetBrains Mono',monospace;color:rgba(0,0,0,.6)">Select 4 operators to extract (heuristic is used if less than 4 selected).</div>
-                <div style="display:flex;gap:6px">
-                  ${[1, 2, 3, 4, 5, 6].map(num => {
-                    const idx = num - 1; // 0=Op1
-                    const isSel = this.dx7ManualOps.has(idx);
+            <!-- Right: Control Sidebar (Orbit Meridian 3D layout) -->
+            <div style="width:clamp(290px, 28vw, 340px);flex:none;border-left:1px solid var(--line);display:flex;align-items:stretch;height:100%;min-height:0;overflow:hidden">
+              
+              <!-- Vertical Side Label -->
+              <div style="width:30px;flex:none;display:flex;align-items:center;justify-content:center;padding:0">
+                <div style="writing-mode:vertical-rl;transform:rotate(180deg);font:500 8.5px 'JetBrains Mono',monospace;letter-spacing:.44em;color:var(--ink3);white-space:nowrap">M8FM FOUR-OP</div>
+              </div>
+
+              <!-- Main Sidebar Column -->
+              <div data-scroll="1" style="flex:1;min-width:0;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:22px 20px 18px;display:flex;flex-direction:column;height:100%">
+                
+                <!-- MACHINE Header with Index -->
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="font:500 8px 'JetBrains Mono',monospace;letter-spacing:.3em;color:var(--ink3)">MACHINE</div>
+                  <div style="flex:1;height:1px;background:var(--line);border-radius:1px"></div>
+                  <div style="font:400 8px 'JetBrains Mono',monospace;letter-spacing:.14em;color:var(--ink3)">
+                    ${String(mi + 1).padStart(2, '0')} / ${String(MACHINES.length).padStart(2, '0')}
+                  </div>
+                </div>
+
+                <!-- Machine Title Dropdown Trigger & Popover -->
+                <div data-mach-dropdown="1" style="flex:none;position:relative;margin:13px 0 0;z-index:30">
+                  <button type="button" @click=${() => { this.machOpen = !this.machOpen; }}
+                    style="display:flex;align-items:flex-start;gap:10px;width:100%;border:none;background:none;padding:0;cursor:pointer;text-align:left">
+                    <div style="flex:1;min-width:0;font:700 32px/.92 'Space Grotesk',sans-serif;letter-spacing:-.042em;color:var(--ink);text-wrap:balance">
+                      ${mach.name}
+                    </div>
+                    <div style="flex:none;margin-top:7px;color:${this.machOpen ? 'var(--ink)' : 'var(--ink3)'};transform:${this.machOpen ? 'rotate(180deg)' : 'rotate(0deg)'};transition:transform 260ms cubic-bezier(.16,1,.3,1),color 200ms ease">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none"><path d="M5 9l7 7 7-7" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+                    </div>
+                  </button>
+
+                  <!-- Machine Dropdown Popover Overlay -->
+                  <div style="position:absolute;left:-8px;right:-8px;top:100%;margin-top:11px;padding:7px;border-radius:20px;background:var(--gnd);box-shadow:0 22px 46px -24px rgba(16,16,16,.5),inset 0 0 0 1px var(--line2);display:flex;flex-direction:column;gap:2px;opacity:${this.machOpen ? 1 : 0};transform:${this.machOpen ? 'translateY(0) scale(1)' : 'translateY(-6px) scale(.985)'};pointer-events:${this.machOpen ? 'auto' : 'none'};transform-origin:50% 0;transition:opacity 200ms ease,transform 280ms cubic-bezier(.16,1,.3,1);z-index:40">
+                    ${MACHINES.map((m, idx) => {
+                      const on = idx === mi;
+                      return html`
+                        <button type="button" @click=${() => { this.selectMachine(idx); this.machOpen = false; }}
+                          style="display:flex;align-items:center;gap:6px;min-height:31px;border:none;background:transparent;padding:0 14px 0 3px;border-radius:999px;cursor:pointer;text-align:left;position:relative">
+                          <div style="position:absolute;inset:0;border-radius:999px;background:var(--selbg);opacity:${on ? 1 : 0};transition:opacity 200ms ease;pointer-events:none"></div>
+                          <div style="position:relative;flex:none;display:flex;align-items:center;justify-content:center;width:21px;height:21px;border-radius:50%;background:${on ? P.acc : 'transparent'};color:${on ? P.accFg : P.ink3};font:500 8px/1 'JetBrains Mono',monospace;letter-spacing:.04em">
+                            ${String(idx + 1).padStart(2, '0')}
+                          </div>
+                          <div style="position:relative;font:${on ? '600' : '400'} 12.5px/1.2 'Space Grotesk',sans-serif;letter-spacing:-.012em;color:${on ? P.ink : P.ink2}">
+                            ${m.name}
+                          </div>
+                        </button>
+                      `;
+                    })}
+                  </div>
+                </div>
+
+                <!-- Active Mod Hint -->
+                <div style="flex:none;font:400 11px/1.55 'Space Grotesk',sans-serif;color:var(--ink2);margin:11px 0 0;max-width:22em">
+                  ${activeModHint}
+                </div>
+
+                <!-- PRESET Section -->
+                <div style="flex:none;display:flex;align-items:center;gap:10px;margin:20px 0 0">
+                  <div style="font:500 8px 'JetBrains Mono',monospace;letter-spacing:.3em;color:var(--ink3)">PRESET</div>
+                  <div style="flex:1;height:1px;background:var(--line);border-radius:1px"></div>
+                </div>
+                <div data-scroll="1" style="flex:none;overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;display:flex;flex-direction:column;gap:2px;margin:9px -6px 0;padding:0 6px;max-height:120px">
+                  ${mach.presets.map((pr, idx) => {
+                    const on = idx === pi;
                     return html`
-                      <button type="button" @click=${() => this.toggleDx7Op(idx)} style="flex:1;padding:8px 0;border:1px solid ${isSel ? '#17170f' : 'rgba(0,0,0,.15)'};background:${isSel ? '#17170f' : 'transparent'};color:${isSel ? '#fff' : '#17170f'};border-radius:3px;cursor:pointer;font:500 11px 'JetBrains Mono',monospace">OP${num}</button>
+                      <button type="button" @click=${() => this.selectPreset(idx)}
+                        style="display:flex;align-items:center;gap:11px;min-height:31px;border:none;background:transparent;padding:0 14px 0 11px;border-radius:999px;cursor:pointer;text-align:left;position:relative">
+                        <div style="position:absolute;inset:0;border-radius:999px;background:var(--selbg);opacity:${on ? 1 : 0};transition:opacity 200ms ease;pointer-events:none"></div>
+                        <div style="position:relative;flex:none;width:7px;height:7px;border-radius:50%;background:var(--acc);opacity:${on ? 1 : 0};transition:opacity 220ms ease"></div>
+                        <div style="position:relative;flex:1;min-width:0;font:${on ? '600' : '400'} 12.5px/1.2 'Space Grotesk',sans-serif;letter-spacing:-.012em;color:${on ? P.ink : P.ink2};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                          ${pr[0]}
+                        </div>
+                        <div style="position:relative;flex:none;font:400 8.5px/1 'JetBrains Mono',monospace;letter-spacing:.12em;color:${on ? P.ink2 : P.ink3}">
+                          SLOT ${String(idx + 1).padStart(2, '0')}
+                        </div>
+                      </button>
+                    `;
+                  })}
+                </div>
+
+                <!-- PARAMETERS Section (Signature 4-Column Concentric Grid Cards) -->
+                <div style="flex:none;display:flex;align-items:center;gap:10px;margin:20px 0 0">
+                  <div style="font:500 8px 'JetBrains Mono',monospace;letter-spacing:.3em;color:var(--ink3)">PARAMETERS</div>
+                  <div style="flex:1;height:1px;background:var(--line);border-radius:1px"></div>
+                </div>
+                <div style="flex:none;display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin:9px 0 0">
+                  ${[0, 1, 2, 3].map(i => {
+                    const on = i === this.ring;
+                    const v = vals[i];
+                    const mod = mach.mods[i];
+                    const short3 = mod ? mod[1] : '';
+                    return html`
+                      <button type="button"
+                        @pointerdown=${(e: PointerEvent) => this.handleParamDrag(i, e)}
+                        @wheel=${(e: WheelEvent) => { e.preventDefault(); this.setVal(i, Math.max(0, Math.min(100, this.getVal(mi, i) - e.deltaY * 0.12))); }}
+                        @click=${() => { this.ring = i; }}
+                        style="display:flex;flex-direction:column;align-items:center;gap:6px;min-height:70px;padding:10px 2px;border:none;border-radius:18px;background:transparent;cursor:ew-resize;touch-action:none;user-select:none;position:relative">
+                        <div style="position:absolute;inset:0;border-radius:18px;background:var(--selbg);opacity:${on ? 1 : 0};transition:opacity 220ms ease;pointer-events:none"></div>
+                        <!-- Concentric Circle Glyphs highlighting ring i -->
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style="flex:none;overflow:visible">
+                          <circle cx="12" cy="12" r="11" stroke="${i === 0 ? this.arc(0, on) : 'var(--line)'}" stroke-width="${i === 0 ? (on ? 2.6 : 2.0) : 1}"></circle>
+                          <circle cx="12" cy="12" r="8.4" stroke="${i === 1 ? this.arc(1, on) : 'var(--line)'}" stroke-width="${i === 1 ? (on ? 2.6 : 2.0) : 1}"></circle>
+                          <circle cx="12" cy="12" r="5.8" stroke="${i === 2 ? this.arc(2, on) : 'var(--line)'}" stroke-width="${i === 2 ? (on ? 2.6 : 2.0) : 1}"></circle>
+                          <circle cx="12" cy="12" r="3.2" stroke="${i === 3 ? this.arc(3, on) : 'var(--line)'}" stroke-width="${i === 3 ? (on ? 2.6 : 2.0) : 1}"></circle>
+                        </svg>
+                        <div style="position:relative;font:${on ? '700' : '500'} 8px/1 'JetBrains Mono',monospace;letter-spacing:.1em;color:${on ? 'var(--ink)' : 'var(--ink3)'};transition:color 200ms ease">${short3}</div>
+                        <div style="position:relative;font:${on ? '700' : '400'} 15px/1 'JetBrains Mono',monospace;letter-spacing:-.02em;color:${on ? 'var(--ink)' : 'var(--ink2)'};transition:color 200ms ease">${this.hx(v)}</div>
+                      </button>
+                    `;
+                  })}
+                </div>
+
+                <!-- Bottom Area with Motion Drawer Popover & Controls -->
+                <div style="flex:none;margin-top:auto;padding-top:20px;position:relative">
+                  
+                  <!-- Motion Drawer Popover -->
+                  <div style="position:absolute;left:0;right:0;bottom:100%;margin-bottom:10px;padding:13px 14px 14px;border-radius:20px;background:var(--gnd);box-shadow:0 18px 40px -22px rgba(16,16,16,.45),inset 0 0 0 1px var(--line2);opacity:${this.motionOpen ? 1 : 0};transform:${this.motionOpen ? 'translateY(0)' : 'translateY(8px)'};pointer-events:${this.motionOpen ? 'auto' : 'none'};transition:opacity 220ms ease,transform 260ms cubic-bezier(.16,1,.3,1);z-index:25">
+                    <div style="display:flex;align-items:center;gap:10px;margin:0 0 8px">
+                      <div style="font:500 8px 'JetBrains Mono',monospace;letter-spacing:.3em;color:var(--ink3)">MOTION</div>
+                      <div style="flex:1;height:1px;background:var(--line);border-radius:1px"></div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;gap:3px">
+                      ${[
+                        { name: 'VIEW', key: 'view' as const, val: this.view, min: 0, max: 70, step: 1, unit: '°' },
+                        { name: 'TILT', key: 'tilt' as const, val: this.tilt, min: 0, max: 22, step: 1, unit: '°' },
+                        { name: 'SWAY', key: 'sway' as const, val: this.sway, min: 0, max: 10, step: 0.5, unit: '°' },
+                        { name: 'SPIN', key: 'spin' as const, val: this.spin, min: 0, max: 120, step: 2, unit: 's' },
+                        { name: 'PUSH', key: 'push' as const, val: this.push, min: 0, max: 70, step: 2, unit: 'px' },
+                        { name: 'PULL', key: 'pull' as const, val: this.pull, min: 0, max: 260, step: 5, unit: 'px' }
+                      ].map(mo => {
+                        const fillPct = ((mo.val - mo.min) / (mo.max - mo.min) * 100).toFixed(1) + '%';
+                        return html`
+                          <button type="button"
+                            @pointerdown=${(e: PointerEvent) => this.handleMotionDrag(mo.key, mo.min, mo.max, mo.step, e)}
+                            style="display:flex;align-items:center;gap:11px;border:none;background:none;padding:0;cursor:ew-resize;text-align:left;touch-action:none;user-select:none">
+                            <div style="position:relative;flex:1;min-width:0;height:28px;border-radius:999px;background:var(--soft);overflow:hidden;display:flex;align-items:center;padding:0 12px 0 28px">
+                              <div style="position:absolute;left:0;top:0;bottom:0;width:${fillPct};border-radius:999px;background:var(--ink);opacity:.14"></div>
+                              <div style="position:relative;font:500 8.5px/1 'JetBrains Mono',monospace;letter-spacing:.16em;color:var(--ink2)">${mo.name}</div>
+                            </div>
+                            <div style="flex:none;min-width:34px;text-align:right;font:400 12px/1 'JetBrains Mono',monospace;color:var(--ink2)">
+                              ${mo.step < 1 ? mo.val.toFixed(1) : Math.round(mo.val)}${mo.unit}
+                            </div>
+                          </button>
+                        `;
+                      })}
+                    </div>
+                  </div>
+
+                  <!-- Utility Bar -->
+                  <div style="display:flex;align-items:center;gap:10px">
+                    <button type="button" @click=${this.toggleDemo}
+                      title="${this.isPlayingDemo ? 'Stop Demo' : 'Play Demo'}"
+                      style="display:flex;align-items:center;justify-content:center;width:38px;height:38px;flex:none;border:1px solid ${this.isPlayingDemo ? P.acc : P.line2};background:${this.isPlayingDemo ? P.acc : 'transparent'};color:${this.isPlayingDemo ? P.accFg : P.ink};border-radius:50%;cursor:pointer;font:400 10px/1 'JetBrains Mono',monospace;transition:all 160ms ease">
+                      ${this.isPlayingDemo ? '■' : '▶'}
+                    </button>
+
+                    <div @pointerdown=${this.handleVolDrag} @wheel=${this.handleVolWheel}
+                      style="flex:1;min-width:0;display:flex;align-items:center;gap:9px;cursor:ew-resize;touch-action:none;user-select:none">
+                      <div style="flex:1;height:6px;border-radius:3px;background:var(--soft);position:relative">
+                        <div style="position:absolute;left:0;top:0;bottom:0;width:${this.vol * 100}%;border-radius:3px;background:var(--ink);opacity:.8"></div>
+                        <div style="position:absolute;top:-3px;left:${this.vol * 100}%;width:12px;height:12px;margin-left:-6px;border-radius:50%;background:var(--gnd);box-shadow:inset 0 0 0 2px var(--ink)"></div>
+                      </div>
+                      <div style="font:400 14px/1 'Space Grotesk',sans-serif;font-variant-numeric:tabular-nums;color:var(--ink);width:18px;text-align:right">
+                        ${Math.round(this.vol * 10)}
+                      </div>
+                    </div>
+
+                    <button type="button" @click=${this.toggleTheme}
+                      title="Theme: ${this.theme === 'ink' ? 'Ink (Monochrome) — Click for Machine Mood' : 'Machine Mood — Click for Ink'}"
+                      style="flex:none;display:flex;align-items:center;justify-content:center;width:30px;height:30px;border:1px solid var(--line2);background:${this.theme === 'ink' ? 'rgba(220,217,198,.08)' : P.acc};color:${this.theme === 'ink' ? 'var(--ink)' : P.accFg};border-radius:50%;cursor:pointer;font:700 8px/1 'JetBrains Mono',monospace;letter-spacing:.05em;transition:all 180ms ease">
+                      ${this.theme === 'ink' ? 'INK' : 'CLR'}
+                    </button>
+
+                    <button type="button" @click=${() => { this.motionOpen = !this.motionOpen; }}
+                      title="Motion & View Options"
+                      style="flex:none;display:flex;align-items:center;justify-content:center;width:30px;height:30px;border:1px solid ${this.motionOpen ? P.acc : P.line2};background:${this.motionOpen ? P.acc : 'transparent'};color:${this.motionOpen ? P.accFg : P.ink3};border-radius:50%;cursor:pointer;font:400 12px/1 'JetBrains Mono',monospace;transition:all 180ms ease">
+                      ◎
+                    </button>
+                  </div>
+
+                  <!-- Exports -->
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:16px 0 0">
+                    <button type="button" @click=${this.exportInstrument} title="Export M8 Instrument (.m8i)"
+                      style="flex:1;border:1px solid var(--line2);background:none;color:var(--ink2);padding:8px 6px;border-radius:999px;cursor:pointer;font:500 8.5px 'JetBrains Mono',monospace;letter-spacing:.18em;transition:all 180ms ease">
+                      .M8I
+                    </button>
+                    <button type="button" @click=${this.exportSong} title="Export M8 Song (.m8s)"
+                      style="flex:1;border:1px solid var(--acc);background:var(--acc);color:var(--accFg);padding:8px 6px;border-radius:999px;cursor:pointer;font:500 8.5px 'JetBrains Mono',monospace;letter-spacing:.18em;transition:transform 180ms cubic-bezier(.23,1,.32,1)">
+                      .M8S
+                    </button>
+                  </div>
+
+                </div>
+
+              </div>
+            </div>
+
+          </div>
+
+          <!-- ==================== MOBILE LAYOUT (<=800px Orbit Meridian Mobile) ==================== -->
+          <div class="mobile-view" style="display:none;width:100%;height:100%;overflow-y:auto;position:relative">
+            
+            <!-- Mobile Container styled like Orbit Meridian Mobile device frame -->
+            <div style="width:100%;max-width:440px;margin:0 auto;height:100%;min-height:100%;display:flex;flex-direction:column;position:relative;background:var(--gnd)">
+              
+              <!-- Mobile Header -->
+              <div style="flex:none;padding:18px 20px 0">
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="font:500 8px 'JetBrains Mono',monospace;letter-spacing:.3em;color:var(--ink3)">MACHINE</div>
+                  <div style="flex:1;height:1px;background:var(--line);border-radius:1px"></div>
+                  <div style="font:400 8px 'JetBrains Mono',monospace;letter-spacing:.14em;color:var(--ink3)">
+                    ${String(mi + 1).padStart(2, '0')} / ${String(MACHINES.length).padStart(2, '0')}
+                  </div>
+                </div>
+                <button type="button" @click=${() => { this.mobileBrowseOpen = true; }}
+                  style="display:flex;align-items:center;gap:12px;width:100%;border:none;background:none;padding:8px 0 0;cursor:pointer;text-align:left">
+                  <div style="flex:1;min-width:0;font:700 28px/.92 'Space Grotesk',sans-serif;letter-spacing:-.042em;color:var(--ink)">
+                    ${mach.name}
+                  </div>
+                  <div style="flex:none;display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;background:var(--soft);font:400 13px/1 'JetBrains Mono',monospace;color:var(--ink2)">
+                    ▾
+                  </div>
+                </button>
+                <div style="font:400 11px/1.5 'Space Grotesk',sans-serif;color:var(--ink2);margin:8px 0 0">
+                  ${activeModHint}
+                </div>
+              </div>
+
+              <!-- Mobile 3D Dial Stage -->
+              <div style="flex:none;position:relative;margin:0 0 4px">
+                <div @pointerdown=${this.handleOrbitPointerDown}
+                  style="flex:1;min-width:0;position:relative;aspect-ratio:1.18;cursor:grab;touch-action:none;user-select:none;perspective:1500px;perspective-origin:50% 50%"
+                  data-stage="1">
+                  <div style="position:absolute;inset:0;background-image:radial-gradient(var(--dotc) 1px,transparent 1px);background-size:9px 9px;opacity:.3;pointer-events:none"></div>
+                  
+                  <div style="position:absolute;inset:0;pointer-events:none;transform-style:preserve-3d;transform:rotateX(2deg)">
+                    <div style="position:absolute;inset:0;pointer-events:none;transform-style:preserve-3d;animation:${this.orbitOf()};animation-play-state:${this.isDraggingRing ? 'paused' : 'running'}">
+                      <div style="position:absolute;inset:0;pointer-events:none;transform-style:preserve-3d;animation:o-drift 38s linear infinite">
+                        ${[0, 1, 2, 3].map(i => this.renderMobileRing(i, vals[i], i === this.ring))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style="position:absolute;left:${eyeLeft};top:${eyeTop};transform:translate(-50%,-52%);display:flex;flex-direction:column;align-items:center;gap:8px;pointer-events:none">
+                    <div style="font:700 54px/1 'JetBrains Mono',monospace;letter-spacing:-.035em;color:var(--ink);animation:o-swell 6.2s ease-in-out infinite">
+                      ${activeVal.toFixed(1)}
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px">
+                      <div style="width:14px;height:1px;background:var(--line2)"></div>
+                      <div style="font:500 9px/1 'JetBrains Mono',monospace;letter-spacing:.22em;color:var(--ink2)">
+                        ${activeModName}
+                      </div>
+                      <div style="width:14px;height:1px;background:var(--line2)"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Mobile Controls Section -->
+              <div style="flex:1;min-height:0;display:flex;flex-direction:column;padding:0 20px 4px">
+                
+                <!-- 4-Column Parameter Cards -->
+                <div style="flex:none;display:flex;align-items:center;gap:10px">
+                  <div style="font:500 8px 'JetBrains Mono',monospace;letter-spacing:.3em;color:var(--ink3)">PARAMETERS</div>
+                  <div style="flex:1;height:1px;background:var(--line);border-radius:1px"></div>
+                  <div style="font:400 8px 'JetBrains Mono',monospace;letter-spacing:.14em;color:var(--ink3)">DRAG</div>
+                </div>
+                <div style="flex:none;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:8px 0 14px">
+                  ${[0, 1, 2, 3].map(i => {
+                    const on = i === this.ring;
+                    const v = vals[i];
+                    const mod = mach.mods[i];
+                    const short3 = mod ? mod[1] : '';
+                    return html`
+                      <button type="button"
+                        @pointerdown=${(e: PointerEvent) => this.handleParamDrag(i, e)}
+                        @click=${() => { this.ring = i; }}
+                        style="display:flex;flex-direction:column;align-items:center;gap:6px;min-height:72px;padding:9px 3px;border:none;border-radius:18px;background:transparent;cursor:ew-resize;touch-action:none;user-select:none;position:relative">
+                        <div style="position:absolute;inset:0;border-radius:18px;background:var(--selbg);opacity:${on ? 1 : 0};transition:opacity 220ms ease;pointer-events:none"></div>
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style="flex:none;overflow:visible">
+                          <circle cx="12" cy="12" r="11" stroke="${i === 0 ? this.arc(0, on) : 'var(--line)'}" stroke-width="${i === 0 ? (on ? 2.6 : 2.0) : 1}"></circle>
+                          <circle cx="12" cy="12" r="8.4" stroke="${i === 1 ? this.arc(1, on) : 'var(--line)'}" stroke-width="${i === 1 ? (on ? 2.6 : 2.0) : 1}"></circle>
+                          <circle cx="12" cy="12" r="5.8" stroke="${i === 2 ? this.arc(2, on) : 'var(--line)'}" stroke-width="${i === 2 ? (on ? 2.6 : 2.0) : 1}"></circle>
+                          <circle cx="12" cy="12" r="3.2" stroke="${i === 3 ? this.arc(3, on) : 'var(--line)'}" stroke-width="${i === 3 ? (on ? 2.6 : 2.0) : 1}"></circle>
+                        </svg>
+                        <div style="font:${on ? '700' : '500'} 8.5px/1 'JetBrains Mono',monospace;letter-spacing:.12em;color:${on ? 'var(--ink)' : 'var(--ink3)'}">${short3}</div>
+                        <div style="font:${on ? '700' : '400'} 15px/1 'JetBrains Mono',monospace;letter-spacing:-.02em;color:${on ? 'var(--ink)' : 'var(--ink2)'}">${this.hx(v)}</div>
+                      </button>
+                    `;
+                  })}
+                </div>
+
+                <!-- Presets Row with Circular Badges -->
+                <div style="flex:none;display:flex;align-items:center;gap:10px">
+                  <div style="font:500 8px 'JetBrains Mono',monospace;letter-spacing:.3em;color:var(--ink3)">PRESET</div>
+                  <div style="flex:1;height:1px;background:var(--line);border-radius:1px"></div>
+                </div>
+                <div style="flex:none;display:flex;align-items:center;gap:12px;margin:8px 0 0">
+                  <div style="flex:1;min-width:0;font:600 15px/1.2 'Space Grotesk',sans-serif;letter-spacing:-.018em;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+                    ${mach.presets[pi][0]}
+                  </div>
+                  <div style="flex:none;display:flex;gap:6px">
+                    ${mach.presets.map((pr, idx) => {
+                      const on = idx === pi;
+                      return html`
+                        <button type="button" @click=${() => this.selectPreset(idx)} aria-label="${pr[0]}"
+                          style="display:flex;align-items:center;justify-content:center;width:40px;height:40px;border:1px solid ${on ? 'var(--acc)' : 'var(--line2)'};background:transparent;border-radius:50%;cursor:pointer;font:500 10px/1 'JetBrains Mono',monospace;letter-spacing:.06em;position:relative;transition:border-color 200ms ease">
+                          <div style="position:absolute;inset:-1px;border-radius:50%;background:var(--acc);opacity:${on ? 1 : 0};transition:opacity 200ms ease;pointer-events:none"></div>
+                          <div style="position:relative;color:${on ? 'var(--accFg)' : 'var(--ink2)'}">0${idx + 1}</div>
+                        </button>
+                      `;
+                    })}
+                  </div>
+                </div>
+
+              </div>
+
+              <!-- Mobile Bottom Utility Bar -->
+              <div style="flex:none;display:flex;flex-direction:column;gap:10px;padding:12px 20px 20px;border-top:1px solid var(--line);margin-top:auto">
+                <div style="display:flex;align-items:center;gap:12px">
+                  <button type="button" @click=${this.toggleDemo}
+                    style="display:flex;align-items:center;justify-content:center;width:42px;height:42px;flex:none;border:1px solid ${this.isPlayingDemo ? P.acc : P.line2};background:${this.isPlayingDemo ? P.acc : 'transparent'};color:${this.isPlayingDemo ? P.accFg : P.ink};border-radius:50%;cursor:pointer;font:400 11px/1 'JetBrains Mono',monospace;transition:all 140ms ease">
+                    ${this.isPlayingDemo ? '■' : '▶'}
+                  </button>
+                  <div @pointerdown=${this.handleVolDrag}
+                    style="flex:1;min-width:0;display:flex;align-items:center;gap:10px;cursor:ew-resize;touch-action:none;user-select:none">
+                    <div style="flex:1;height:6px;border-radius:3px;background:var(--soft);position:relative">
+                      <div style="position:absolute;left:0;top:0;bottom:0;width:${this.vol * 100}%;border-radius:3px;background:var(--ink);opacity:.8"></div>
+                      <div style="position:absolute;top:-4px;left:${this.vol * 100}%;width:14px;height:14px;margin-left:-7px;border-radius:50%;background:var(--gnd);box-shadow:inset 0 0 0 2px var(--ink)"></div>
+                    </div>
+                    <div style="font:400 14px/1 'Space Grotesk',sans-serif;color:var(--ink);width:20px;text-align:right">
+                      ${Math.round(this.vol * 10)}
+                    </div>
+                  </div>
+                  <button type="button" @click=${this.toggleTheme}
+                    style="flex:none;display:flex;align-items:center;justify-content:center;width:32px;height:32px;border:1px solid var(--line2);background:${this.theme === 'ink' ? 'rgba(220,217,198,.08)' : P.acc};color:${this.theme === 'ink' ? 'var(--ink)' : P.accFg};border-radius:50%;cursor:pointer;font:700 8.5px/1 'JetBrains Mono',monospace">
+                    ${this.theme === 'ink' ? 'INK' : 'CLR'}
+                  </button>
+                </div>
+                <div style="display:flex;gap:8px">
+                  <button type="button" @click=${this.exportInstrument}
+                    style="flex:1;border:1px solid var(--line2);background:none;color:var(--ink2);height:40px;border-radius:999px;cursor:pointer;font:500 9px 'JetBrains Mono',monospace;letter-spacing:.18em">
+                    .M8I
+                  </button>
+                  <button type="button" @click=${this.exportSong}
+                    style="flex:1;border:1px solid var(--acc);background:var(--acc);color:var(--accFg);height:40px;border-radius:999px;cursor:pointer;font:500 9px 'JetBrains Mono',monospace;letter-spacing:.18em">
+                    .M8S
+                  </button>
+                </div>
+              </div>
+
+              <!-- Mobile Bottom Sheet Drawer for Machine Selection -->
+              <div style="position:fixed;inset:0;pointer-events:${this.mobileBrowseOpen ? 'auto' : 'none'};background:rgba(16,16,16,${this.mobileBrowseOpen ? 0.5 : 0});transition:background-color 260ms ease;z-index:90"
+                @click=${() => { this.mobileBrowseOpen = false; }}></div>
+              <div style="position:fixed;left:0;right:0;bottom:0;max-width:440px;margin:0 auto;transform:${this.mobileBrowseOpen ? 'translateY(0)' : 'translateY(105%)'};transition:transform 380ms cubic-bezier(.16,1,.3,1);background:var(--gnd);border-radius:30px 30px 0 0;box-shadow:0 -20px 50px -24px rgba(16,16,16,.4),0 0 0 1px var(--line2);padding:18px 20px 30px;pointer-events:${this.mobileBrowseOpen ? 'auto' : 'none'};z-index:100">
+                <div style="display:flex;align-items:center;gap:10px;padding:0 4px 12px">
+                  <div style="font:500 8px 'JetBrains Mono',monospace;letter-spacing:.3em;color:var(--ink3)">SELECT MACHINE</div>
+                  <div style="flex:1;height:1px;background:var(--line);border-radius:1px"></div>
+                  <button type="button" @click=${() => { this.mobileBrowseOpen = false; }}
+                    style="flex:none;display:flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;border-radius:50%;background:var(--soft);color:var(--ink2);cursor:pointer;font:400 13px/1 'JetBrains Mono',monospace">✕</button>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:3px">
+                  ${MACHINES.map((m, idx) => {
+                    const on = idx === mi;
+                    return html`
+                      <button type="button" @click=${() => { this.selectMachine(idx); this.mobileBrowseOpen = false; }}
+                        style="display:flex;align-items:center;gap:9px;min-height:42px;border:none;background:${on ? 'var(--selbg)' : 'transparent'};padding:0 16px 0 5px;border-radius:999px;cursor:pointer;text-align:left;transition:background-color 200ms ease-out">
+                        <div style="flex:none;display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:50%;background:${on ? 'var(--acc)' : 'transparent'};color:${on ? 'var(--accFg)' : 'var(--ink3)'};font:500 8.5px/1 'JetBrains Mono',monospace;letter-spacing:.04em">
+                          ${String(idx + 1).padStart(2, '0')}
+                        </div>
+                        <div style="font:${on ? '600' : '400'} 13.5px/1.2 'Space Grotesk',sans-serif;letter-spacing:-.014em;color:${on ? 'var(--ink)' : 'var(--ink2)'}">
+                          ${m.name}
+                        </div>
+                      </button>
                     `;
                   })}
                 </div>
               </div>
-            ` : nothing}
-          </div>
-          ` : nothing}
 
-          <div style="display:flex;flex:1;min-height:0;${this.dx7Patches.length > 0 ? 'opacity:0.3;pointer-events:none' : ''}">
-            <div style="width:186px;flex:none;border-right:1px solid rgba(0,0,0,.12);padding:14px 12px;display:flex;flex-direction:column;gap:7px;overflow-y:auto">
-              <div style="font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.4);margin-bottom:2px">MACHINE</div>
-              ${MACHINES.map((m, idx) => {
-                const isSel = idx === mi;
-                const bg = isSel ? '#17170f' : 'transparent';
-                const fg = isSel ? '#dcd9c6' : 'rgba(0,0,0,.55)';
-                const border = isSel ? '#17170f' : 'rgba(0,0,0,.16)';
-                const vars = isSel ? getVars(70) : getVars(0);
-                return html`
-                  <button type="button" @click=${() => this.selectMachine(idx)} style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid ${border};background:${bg};border-radius:4px;cursor:pointer;text-align:left">
-                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" style=${styleMap({ color: fg, ...vars as any })}>
-                      ${this.renderPaths(m.icon)}
-                    </svg>
-                    <div style="flex:1;font:500 11.5px/1.2 'Space Grotesk',sans-serif;color:${fg}">${m.name}</div>
-                  </button>
-                `;
-              })}
-              
-
-            </div>
-
-            <div style="flex:1;padding:16px 18px 18px;overflow-y:auto">
-              
-              <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px">
-                ${mach.presets.map((pr, idx) => {
-                  const isSel = idx === pi;
-                  const bg = isSel ? '#101010' : '#e2e0dc';
-                  const fg = isSel ? '#fff' : 'rgba(0,0,0,.65)';
-                  const border = isSel ? '#101010' : 'rgba(0,0,0,.18)';
-                  return html`
-                    <button type="button" @click=${() => this.selectPreset(idx)} style="border:1px solid ${border};background:${bg};color:${fg};padding:9px 16px;border-radius:20px;cursor:pointer;font:500 12px 'Space Grotesk',sans-serif;white-space:nowrap;transition:transform 150ms cubic-bezier(.23,1,.32,1),background-color 150ms ease,border-color 150ms ease">${pr[0]}</button>
-                  `;
-                })}
-              </div>
-
-              <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-                ${mach.mods.map((m, i) => {
-                  const v = vals[i];
-                  const pct = v.toFixed(1) + '%';
-                  const vars = getVars(v);
-                  
-                  return html`
-                    <div @pointerdown=${(e: PointerEvent) => this.handleDown(e, i, false)} @wheel=${(e: WheelEvent) => this.handleWheel(e, i)} style="display:flex;height:150px;border-radius:5px;overflow:hidden;border:1px solid rgba(0,0,0,.18);cursor:ns-resize;touch-action:none;user-select:none">
-                      <div style="flex:1;background:#17170f;padding:13px;display:flex;flex-direction:column;justify-content:space-between">
-                        <div>
-                          <div style="font:500 11.5px/1.2 'JetBrains Mono',monospace;letter-spacing:.06em;color:#dcd9c6;white-space:pre-line">${m[0]}</div>
-                          <div style="font:400 10px/1.45 'Space Grotesk',sans-serif;color:rgba(220,217,198,.42);margin-top:6px">${m[1]}</div>
-                        </div>
-                        <svg width="42" height="42" viewBox="0 0 24 24" fill="none" style=${styleMap({ color: '#dcd9c6', ...vars as any })}>
-                          ${this.renderPaths((m[2] as (v: number) => any[])(v / 100))}
-                        </svg>
-                      </div>
-                      <div style="width:104px;background:#e6e3d4;padding:13px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end">
-                        <div style="font:700 30px/1 'JetBrains Mono',monospace;letter-spacing:-.02em;color:#17170f">${v.toFixed(1)}</div>
-                        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px;width:100%">
-                          <div style="font:500 11px 'JetBrains Mono',monospace;color:rgba(23,23,15,.45)">${(1 + Math.round(v / 100 * 7)) + '.' + String(Math.round(v * 2) % 1000).padStart(3, '0')}</div>
-                          <div style="width:100%;height:5px;background:rgba(23,23,15,.16)"><div style="height:5px;width:${pct};background:#17170f"></div></div>
-                        </div>
-                      </div>
-                    </div>
-                  `;
-                })}
-              </div>
-              
-              <button type="button" @click=${() => this.adv = !this.adv} style="margin-top:14px;background:none;border:none;padding:0;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.5);display:flex;align-items:center;gap:7px">
-                <span style="display:inline-block;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;transform:rotate(${this.adv ? '90deg' : '0deg'})"></span>FM PARAMETERS
-              </button>
-              
-              ${this.adv ? html`
-                ${(() => {
-                  // Straight off the patch: every value here is the raw M8
-                  // parameter that the .m8i export writes and that you would
-                  // key into the device by hand.
-                  const patch = audio.getPatch();
-                  const fmAlgo = M8_ALGOS[patch.algo] ?? M8_ALGOS[0];
-
-                  const fmOps = ['A', 'B', 'C', 'D'].map((id, i) => {
-                    const op = patch.operators[i];
-                    return {
-                      id,
-                      wave: M8_OSC_SHAPES[op.shape] ?? 'SIN',
-                      ratio: ratioToString(op),
-                      lev: hex(op.level),
-                      fb: hex(op.feedback),
-                      mod1: modSlotToString(op.modA),
-                      mod2: modSlotToString(op.modB)
-                    };
-                  });
-
-                  // The four MOD buses, which is what MOD1..MOD4 mean on the
-                  // device -- not the four modulator slots.
-                  const fmModRows = patch.mods.map((amount, i) => ({
-                    idx: i + 1,
-                    pct: ((amount / 255) * 100).toFixed(1) + '%',
-                    label: hex(amount)
-                  }));
-
-                  const fmFilterChips = [
-                    { name: 'TYPE', val: M8_FILTER_TYPES[patch.filter.type] ?? 'OFF' },
-                    { name: 'CUTOFF', val: hex(patch.filter.cutoff) },
-                    { name: 'RES', val: hex(patch.filter.res) }
-                  ];
-
-                  const fmOutChips = [
-                    { name: 'AMP', val: hex(patch.mixer.amp) },
-                    { name: 'LIM', val: hex(patch.mixer.lim) },
-                    { name: 'PAN', val: hex(patch.mixer.pan) },
-                    { name: 'DRY', val: hex(patch.mixer.dry) },
-                    { name: 'CHO', val: hex(patch.mixer.cho) },
-                    { name: 'DEL', val: hex(patch.mixer.del) },
-                    { name: 'REV', val: hex(patch.mixer.rev) }
-                  ];
-
-                  return html`
-                    <div style="margin-top:11px;padding:15px 16px;background:#e6e3d4;border:1px solid rgba(0,0,0,.12);border-radius:5px">
-                      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:22px;flex-wrap:wrap">
-                        <div style="display:flex;align-items:baseline;gap:10px">
-                          <div style="font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.14em;color:rgba(23,23,15,.4)">ALGO</div>
-                          <div style="font:700 15px 'JetBrains Mono',monospace;color:#17170f">${fmAlgo}</div>
-                          <div style="font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.14em;color:rgba(23,23,15,.4);margin-left:8px">VOL</div>
-                          <div style="font:700 15px 'JetBrains Mono',monospace;color:#17170f">${hex(patch.volume)}</div>
-                        </div>
-                        <div style="display:flex;gap:24px;flex-wrap:wrap">
-                          <div style="display:flex;flex-direction:column;gap:6px">
-                            <div style="font:500 8px 'JetBrains Mono',monospace;letter-spacing:.14em;color:rgba(23,23,15,.32)">FILTER</div>
-                            <div style="display:flex;gap:14px">
-                              ${fmFilterChips.map(c => html`
-                                <div style="display:flex;flex-direction:column;gap:2px">
-                                  <div style="font:400 8.5px 'JetBrains Mono',monospace;letter-spacing:.12em;color:rgba(23,23,15,.4)">${c.name}</div>
-                                  <div style="font:500 13px 'JetBrains Mono',monospace;color:#17170f">${c.val}</div>
-                                </div>
-                              `)}
-                            </div>
-                          </div>
-                          <div style="display:flex;flex-direction:column;gap:6px">
-                            <div style="font:500 8px 'JetBrains Mono',monospace;letter-spacing:.14em;color:rgba(23,23,15,.32)">OUTPUT</div>
-                            <div style="display:flex;gap:14px;flex-wrap:wrap">
-                              ${fmOutChips.map(c => html`
-                                <div style="display:flex;flex-direction:column;gap:2px">
-                                  <div style="font:400 8.5px 'JetBrains Mono',monospace;letter-spacing:.12em;color:rgba(23,23,15,.4)">${c.name}</div>
-                                  <div style="font:500 13px 'JetBrains Mono',monospace;color:#17170f">${c.val}</div>
-                                </div>
-                              `)}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div style="display:flex;gap:1px;background:rgba(0,0,0,.1);margin-top:14px;border-radius:4px;overflow:hidden">
-                        ${fmOps.map(o => html`
-                          <div style="flex:1;background:#e6e3d4;padding:10px 12px">
-                            <div style="font:700 12px 'JetBrains Mono',monospace;letter-spacing:.06em;color:#17170f;margin-bottom:8px">OP ${o.id}</div>
-                            <div style="display:flex;flex-direction:column;gap:5px">
-                              <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">WAVE</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.wave}</span></div>
-                              <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">RATIO</span><span style="font:700 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.ratio}</span></div>
-                              <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">LEVEL</span><span style="font:700 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.lev}</span></div>
-                              <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">FB</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.fb}</span></div>
-                              <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">MOD 1</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.mod1}</span></div>
-                              <div style="display:flex;justify-content:space-between"><span style="font:400 9.5px 'JetBrains Mono',monospace;color:rgba(23,23,15,.4)">MOD 2</span><span style="font:500 11.5px 'JetBrains Mono',monospace;color:#17170f">${o.mod2}</span></div>
-                            </div>
-                          </div>
-                        `)}
-                      </div>
-
-                      <div style="display:flex;flex-direction:column;margin-top:14px;border-top:1px solid rgba(0,0,0,.1)">
-                        ${fmModRows.map(m => html`
-                          <div style="display:flex;align-items:center;gap:12px;padding:9px 2px;border-bottom:1px solid rgba(0,0,0,.08)">
-                            <div style="width:18px;height:18px;border-radius:50%;background:#17170f;color:#dcd9c6;font:600 9.5px 'JetBrains Mono',monospace;display:flex;align-items:center;justify-content:center;flex:none">${m.idx}</div>
-                            <div style="width:70px;font:500 12px 'JetBrains Mono',monospace;color:rgba(23,23,15,.55)">MOD${m.idx}</div>
-                            <div style="flex:1;height:5px;background:rgba(0,0,0,.1);border-radius:3px;overflow:hidden"><div style="height:5px;width:${m.pct};background:#17170f"></div></div>
-                            <div style="width:44px;text-align:right;font:700 12.5px 'JetBrains Mono',monospace;color:#17170f">${m.label}</div>
-                          </div>
-                        `)}
-                      </div>
-                    </div>
-                  `;
-                })()}
-              ` : nothing}
-
-              <button type="button" @click=${() => this.advMod = !this.advMod} style="margin-top:11px;flex:none;background:none;border:none;padding:0;cursor:pointer;font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:rgba(0,0,0,.5);display:flex;align-items:center;gap:7px">
-                <span style="display:inline-block;width:0;height:0;border-left:5px solid currentColor;border-top:4px solid transparent;border-bottom:4px solid transparent;transform:rotate(${this.advMod ? '90deg' : '0deg'})"></span>MODULATORS
-              </button>
-
-              ${this.advMod ? html`
-                ${(() => {
-                  // The M8's four modulator slots: ENV1, ENV2, LFO1, LFO2.
-                  // Their DEST is what points them at VOLUME, PITCH or one of
-                  // the MOD buses shown in the FM PARAMETERS panel above.
-                  const patch = audio.getPatch();
-                  const destStr = (dest: number) => M8_ENV_DESTS[dest] ?? 'OFF';
-
-                  const envSlot = (idx: number) => {
-                    const env = patch.envelopes[idx];
-                    return {
-                      idx: idx + 1,
-                      type: 'AHD ENV',
-                      dest: destStr(env.dest),
-                      amtVal: env.amount,
-                      params: [
-                        { k: 'ATK', v: hex(env.attack) },
-                        { k: 'HOLD', v: hex(env.hold) },
-                        { k: 'DEC', v: hex(env.decay) }
-                      ]
-                    };
-                  };
-
-                  const lfoSlot = (idx: number) => {
-                    const lfo = patch.lfos[idx];
-                    return {
-                      idx: idx + 3,
-                      type: 'LFO',
-                      dest: destStr(lfo.dest),
-                      amtVal: lfo.amount,
-                      params: [
-                        { k: 'OSC', v: M8_LFO_SHAPES[lfo.shape] ?? 'TRI' },
-                        { k: 'TRIG', v: M8_LFO_TRIGGERS[lfo.trigger] ?? 'FREE' },
-                        { k: 'FREQ', v: hex(lfo.freq) }
-                      ]
-                    };
-                  };
-
-                  const modSlots = [envSlot(0), envSlot(1), lfoSlot(0), lfoSlot(1)].map(s => ({
-                    ...s,
-                    amt: hex(s.amtVal),
-                    pct: ((s.amtVal / 255) * 100).toFixed(1) + '%'
-                  }));
-
-                  return html`
-                    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1px;background:rgba(0,0,0,.1);margin-top:11px;border-radius:5px;overflow:hidden">
-                      ${modSlots.map(s => html`
-                        <div style="background:#e6e3d4;padding:12px 14px">
-                          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:9px">
-                            <div style="display:flex;align-items:center;gap:8px">
-                              <div style="width:16px;height:16px;border-radius:50%;background:#17170f;color:#dcd9c6;font:600 8.5px 'JetBrains Mono',monospace;display:flex;align-items:center;justify-content:center;flex:none">${s.idx}</div>
-                              <div style="font:600 10px 'JetBrains Mono',monospace;letter-spacing:.08em;color:#17170f">${s.type}</div>
-                            </div>
-                            <div style="font:500 9px 'JetBrains Mono',monospace;letter-spacing:.06em;color:rgba(23,23,15,.55);background:rgba(0,0,0,.06);padding:2px 6px;border-radius:3px">${s.dest}</div>
-                          </div>
-                          <div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">
-                            <div style="flex:1;height:5px;background:rgba(0,0,0,.1);border-radius:3px;overflow:hidden"><div style="height:5px;width:${s.pct};background:#17170f"></div></div>
-                            <div style="width:38px;text-align:right;font:700 12.5px 'JetBrains Mono',monospace;color:#17170f">${s.amt}</div>
-                          </div>
-                          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
-                            ${s.params.map(p => html`
-                              <div style="display:flex;flex-direction:column;gap:3px">
-                                <div style="font:400 8.5px 'JetBrains Mono',monospace;letter-spacing:.1em;color:rgba(23,23,15,.4)">${p.k}</div>
-                                <div style="font:500 14px 'JetBrains Mono',monospace;color:#17170f">${p.v}</div>
-                              </div>
-                            `)}
-                          </div>
-                        </div>
-                      `)}
-                    </div>
-                  `;
-                })()}
-              ` : nothing}
             </div>
           </div>
-        </div>
 
-        <!-- Mobile Layout -->
-        <div class="mobile-view" style="width:372px;flex:none;flex-direction:column;gap:10px">
-
-          <div style="background:#e2e0dc;border:1px solid rgba(0,0,0,.12);border-radius:7px;overflow:hidden">
-            <div style="display:flex;gap:1px;background:rgba(0,0,0,.12);border-bottom:1px solid rgba(0,0,0,.12)">
-              ${MACHINES.map((m, idx) => {
-                const isSel = idx === mi;
-                const tabBg = isSel ? '#17170f' : '#e2e0dc';
-                const tabFg = isSel ? '#dcd9c6' : 'rgba(0,0,0,.42)';
-                const vars = isSel ? getVars(70) : getVars(0);
-                return html`
-                  <button type="button" @click=${() => this.selectMachine(idx)} style="flex:1;height:50px;border:none;background:${tabBg};display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0">
-                    <svg width="23" height="23" viewBox="0 0 24 24" fill="none" style=${styleMap({ color: tabFg, ...vars as any })}>
-                      ${this.renderPaths(m.icon)}
-                    </svg>
-                  </button>
-                `;
-              })}
-            </div>
-            
-            <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 14px 11px">
-              <div style="font:700 17px/1 'Space Grotesk',sans-serif">${mach.name}</div>
-              <div style="display:flex;gap:5px">
-                ${mach.presets.map((pr, idx) => {
-                  const isSel = idx === pi;
-                  const bg = isSel ? '#101010' : 'transparent';
-                  const fg = isSel ? '#fff' : 'rgba(0,0,0,.55)';
-                  const border = isSel ? '#101010' : 'rgba(0,0,0,.16)';
-                  return html`
-                    <button type="button" @click=${() => this.selectPreset(idx)} style="border:1px solid ${border};background:${bg};padding:4px 8px 5px;border-radius:3px;cursor:pointer;font:500 9.5px 'JetBrains Mono',monospace;letter-spacing:.08em;color:${fg};white-space:nowrap">${pr[0]}</button>
-                  `;
-                })}
-              </div>
-            </div>
-            
-            <div style="padding:0 14px 14px;display:flex;flex-direction:column;gap:9px">
-              ${mach.mods.map((m, i) => {
-                const v = vals[i];
-                const pct = v.toFixed(1) + '%';
-                const vars = getVars(v);
-                return html`
-                  <div @pointerdown=${(e: PointerEvent) => this.handleDown(e, i, true)} style="display:flex;height:104px;border-radius:5px;overflow:hidden;border:1px solid rgba(0,0,0,.18);cursor:ew-resize;touch-action:pan-y;user-select:none">
-                    <div style="flex:1;background:#17170f;padding:11px 12px;display:flex;flex-direction:column;justify-content:space-between">
-                      <div style="font:500 10.5px/1.2 'JetBrains Mono',monospace;letter-spacing:.06em;color:#dcd9c6;white-space:pre-line">${m[0]}</div>
-                      <svg width="38" height="38" viewBox="0 0 24 24" fill="none" style=${styleMap({ color: '#dcd9c6', ...vars as any })}>
-                        ${this.renderPaths((m[2] as (v: number) => any[])(v / 100))}
-                      </svg>
-                    </div>
-                    <div style="width:104px;background:#e6e3d4;padding:11px 12px;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-end">
-                      <div style="font:700 26px/1 'JetBrains Mono',monospace;color:#17170f">${v.toFixed(1)}</div>
-                      <div style="width:100%;height:7px;background:rgba(23,23,15,.16)"><div style="height:7px;width:${pct};background:#17170f"></div></div>
-                    </div>
-                  </div>
-                `;
-              })}
-              <button type="button" @click=${this.toggleDemo}
-                style="margin-top:6px;display:flex;align-items:center;justify-content:center;gap:7px;border:1px solid ${this.isPlayingDemo ? '#17170f' : 'rgba(0,0,0,.25)'};background:${this.isPlayingDemo ? '#17170f' : 'transparent'};color:${this.isPlayingDemo ? '#dcd9c6' : '#17170f'};padding:10px;border-radius:4px;cursor:pointer;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.14em">
-                ${this.isPlayingDemo ? html`
-                  <span style="display:inline-block;width:7px;height:7px;background:#dcd9c6;border-radius:1px"></span>
-                  <span>STOP DEMO (${this.currentDemoStep >= 0 ? String(this.currentDemoStep + 1).padStart(2, '0') : ''})</span>
-                ` : html`
-                  <svg width="8" height="8" viewBox="0 0 24 24" fill="currentColor">
-                    <polygon points="5 3 19 12 5 21 5 3"></polygon>
-                  </svg>
-                  <span>PLAY DEMO PATTERN</span>
-                `}
-              </button>
-
-              <div style="display:flex;gap:7px;margin-top:4px">
-                <button type="button" @click=${this.exportInstrument}
-                  style="flex:1;border:1px solid rgba(0,0,0,.3);background:transparent;color:#101010;padding:11px 8px;border-radius:4px;cursor:pointer;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.12em;display:flex;align-items:center;justify-content:center;gap:5px">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                    <polyline points="7 10 12 15 17 10"></polyline>
-                    <line x1="12" y1="15" x2="12" y2="3"></line>
-                  </svg>
-                  <span>EXPORT .M8I</span>
-                </button>
-                <button type="button" @click=${this.exportSong}
-                  style="flex:1;border:1px solid #101010;background:#101010;color:#fff;padding:11px 8px;border-radius:4px;cursor:pointer;font:600 10px 'JetBrains Mono',monospace;letter-spacing:.12em;display:flex;align-items:center;justify-content:center;gap:5px">
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M9 18V5l12-2v13"></path>
-                    <circle cx="6" cy="18" r="3"></circle>
-                    <circle cx="18" cy="16" r="3"></circle>
-                  </svg>
-                  <span>EXPORT .M8S</span>
-                </button>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     `;

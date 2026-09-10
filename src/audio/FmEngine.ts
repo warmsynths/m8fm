@@ -110,6 +110,7 @@ export class FmEngine {
   private node: AudioWorkletNode | null = null;
   private ready: Promise<void> | null = null;
   private pendingSpec: RenderSpec | null = null;
+  private pendingNotes: unknown[] = [];
   private volume = 0.5;
 
   public async init(audioCtx: AudioContext): Promise<void> {
@@ -129,6 +130,12 @@ export class FmEngine {
           this.post({ type: 'spec', spec: this.pendingSpec });
           this.pendingSpec = null;
         }
+        if (this.pendingNotes.length > 0) {
+          for (const msg of this.pendingNotes) {
+            this.post(msg);
+          }
+          this.pendingNotes = [];
+        }
       })
       .catch((err) => {
         console.error('Failed to start the M8 FM worklet:', err);
@@ -140,6 +147,8 @@ export class FmEngine {
   private post(message: unknown) {
     if (this.node) {
       this.node.port.postMessage(message);
+    } else {
+      this.pendingNotes.push(message);
     }
   }
 

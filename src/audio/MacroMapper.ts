@@ -27,7 +27,7 @@ export type AnchorName = 'Electric Piano' | 'Sub Bass' | 'Mallet' | 'Pad' | 'Per
 export const AnchorMacroConfig: Record<AnchorName, string[]> = {
   'Electric Piano': ['Tine Material', 'Strike Force', 'Bark', 'Tremolo Depth'],
   'Sub Bass': ['Sub Weight', 'Pitch Snap', 'Top-End Growl', 'Boom'],
-  'Mallet': ['Harmonic Focus', 'Dampening', 'Impact Noise'],
+  'Mallet': ['Harmonic Focus', 'Dampening', 'Impact Noise', 'Tail'],
   'Pad': ['Wash', 'Shimmer', 'Chorus', 'Hollow'],
   'Percussion': ['Punch', 'Tone', 'Decay', 'Dirt'],
   'Vintage Lead': ['Timbre', 'Filter Cutoff', 'Filter Envelope', 'Analog Slop']
@@ -196,6 +196,11 @@ export class MacroMapper {
     const impact = this.macro('Impact Noise');
     patch.operators[2].level = lerpByte(0x10, 0x60, impact);
     patch.operators[2].feedback = lerpByte(0x00, 0x70, impact);
+
+    const tail = this.macro('Tail');
+    if (tail > 0) {
+      patch.envelopes[0].decay = lerpByte(patch.envelopes[0].decay, secondsToEnvDecay(3.5), tail);
+    }
   }
 
   private applyPad(patch: M8Patch) {
