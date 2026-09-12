@@ -66,14 +66,47 @@ The M8 uses a 2-level modulation matrix:
 
 ## 5. Sound Design Recipes
 
-### A. Pure 2-Op Silky Electric Piano (Rhodes / Wurli):
+### A. Electric Piano (Rhodes / Wurli):
+
+Two independent 2-op pairs: one makes the struck tine, the other the sustained
+body, and `07` mixes them. Keeping them separate is what makes this sound like a
+piano — stacking extra carriers on one modulator gives an organ instead (see the
+warning below).
+
 - **Algorithm**: `07 [A>B] + [C>D]`
-- **Op A (Modulator)**: `SIN`, `RATIO 01.00`, `LEV 0C`–`14`, `FB 00`, `MOD -----`
-- **Op B (Carrier 1)**: `SIN`, `RATIO 01.00`, `LEV FF`, `FB 00`, `MOD 1▸LEV` (Volume Envelope)
-- **Op C (Modulator 2)**: `SIN`, `RATIO 01.00`, `LEV 00`, `FB 00`, `MOD -----` *(Silenced)*
-- **Op D (Carrier 2)**: `SIN`, `RATIO 01.00`, `LEV 00`, `FB 00`, `MOD -----` *(Silenced)*
-- **Env 1**: `DEST: MOD 1`, `ATTACK: 00`, `HOLD: 00`, `DECAY: 60`
-- **LFO 1**: `DEST: VOLUME`, `TYPE: TRI`, `FREQ: 35`, `AMT: 40` (Master Tremolo)
+- **Op A (Tine Modulator)**: `SIN`, `RATIO 07.00`–`14.00`, `LEV B8`, `FB 00`, `MOD 2▸LEV`
+- **Op B (Tine Carrier)**: `SIN`, `RATIO 01.00`, `LEV 90`, `FB 00`, `MOD 2▸LEV`
+- **Op C (Body Modulator)**: `SIN`, `RATIO 01.00`, `LEV 60`, `FB 00`, `MOD -----`
+- **Op D (Body Carrier)**: `SIN`, `RATIO 01.00`, `LEV C0`, `FB 00`, `MOD -----`
+- **MOD 1-4**: all `00` — the strike envelope supplies the whole of MOD 2
+- **Env 1**: `DEST: VOLUME`, `AMT: FF`, `ATTACK: 00`, `HOLD: 00`, `DECAY: 90` (~3.0 s note)
+- **Env 2**: `DEST: MOD 2`, `AMT: FF`, `ATTACK: 00`, `HOLD: 00`, `DECAY: 22` (~0.7 s strike)
+- **LFO 1**: `DEST: VOLUME`, `TYPE: TRI`, `FREQ: C3`, `AMT: 22` (Master Tremolo)
+- **Filter**: `LOWPASS`, `CUT D8`, `RES 10`. **Mixer**: `CHO A0`
+
+Both tine operators sit on `MOD 2`, and that bus rests at `00`. Because a MOD bus
+*scales* what it is wired to (section 7), the whole tine pair is silent between
+notes and swells in with the strike — the `LEV` values above are its brightness
+and level at the peak of the strike, not standing amounts. `ENV 2`'s `AMT` is
+`FF` so the bus sweeps its whole range.
+
+Put only the modulator on the bus and the tine carrier rings on at fixed volume
+forever; leave the bus resting above zero and the tine never goes away.
+
+**Tuning notes**:
+- Raising `RATIO A` moves the strike up the harmonic series: `07.00` is woody,
+  `14.00` is glassy. Keep it a whole number — a fractional tine ratio beats
+  against the body pair, which is the difference between a bell and a clang.
+- `LEV C` is the body's modulation index, and it is the Rhodes "bark" when you
+  dig in. Push it for a Wurli, back it off for a silky MK1.
+- Reach for `LEV C`, not `LEV A`, when the patch needs more character. More tine
+  just makes it brighter.
+
+> **Carrier ratios are pitches, not overtones.** Carriers at `00.50`, `01.00` and
+> `01.50` are not a piano with overtones — relative to the sub-octave they are a
+> 1:2:3 series, i.e. the 16′ + 8′ + 5⅓′ registration of a Hammond organ, and they
+> will sound like one. Give carriers whole-number ratios unless you specifically
+> want a stacked interval.
 
 ### B. FM Punch Kick Drum:
 - **Algorithm**: `07 [A>B] + [C>D]`
@@ -88,7 +121,121 @@ The M8 uses a 2-level modulation matrix:
 
 ---
 
-## 6. Web Audio vs Hardware Implementation Gotchas
+## 6. The FMSYNTH Has No Implicit Amplitude Envelope
 
-1. **Linear FM vs Phase Modulation**: Standard Web Audio `Oscillator.frequency` modulation is linear Hz Frequency Modulation. Phase Modulation ($\Delta \phi$) requires scaling frequency deviation as $\Delta f = (\text{Index}_{\text{rad}}) \cdot f_{\text{modulator}}$.
-2. **Op C & Op D Silencing**: In Algorithm 07 (`[A>B] + [C>D]`), if `LEV C` or `LEV D` are left at `80` (50%), Op C modulates Op D into a loud buzzy synth tone. Setting `LEV C = 00` and `LEV D = 00` isolates the pure 2-op sine piano pair.
+This is the single most common reason a patch that looks correct on paper comes
+out as a continuous harsh buzz on the device.
+
+Unlike a subtractive synth, an M8 `FMSYNTH` instrument has **no built-in amp
+envelope**. Nothing shapes the note's loudness unless you explicitly point a
+modulator at it. With every `ENV`/`LFO` aimed at `MOD 1`-`MOD 4` and none at
+`VOLUME`, the operators run flat out for as long as the note is held: no attack,
+no decay, no tail. A perfectly reasonable set of ratios and levels then reads as
+a static, buzzing drone, and no amount of tweaking `RATIO`, `LEVEL` or `FB` will
+fix it, because the problem is not the timbre.
+
+There are two valid ways to give a patch an amplitude envelope:
+
+1. **`ENV 1` → `DEST: VOLUME`** (`AMOUNT FF`). This is the M8's own default for a
+   new instrument, which ships with `VOLUME 00` so the envelope sweeps the note
+   up from silence. Unambiguous, and the right default.
+2. **`ENV 1` → `DEST: MOD 1`**, with each carrier's `MOD` slot set to `1▸LEV`.
+   The envelope drives the MOD 1 bus, which in turn opens the carriers' levels.
+   More flexible (it can shape individual carriers), but every carrier that
+   should be enveloped has to subscribe to the bus — a carrier left on `-----`
+   keeps sounding at its fixed `LEVEL` forever.
+
+Recipe 5A uses the first form for the note itself, and a second envelope on a
+MOD bus for the strike on top of it.
+
+---
+
+## 7. Measured Hardware Behaviour
+
+These were measured off a real M8 playing `calibration/M8FM-CALIBRATION.m8s`.
+`tools/fit-hardware-curves.mjs` reproduces the fits from a recording.
+
+### Envelope decay is exponential, and linear in the parameter
+
+The AHD decay is a pure exponential whose rate is inversely proportional to the
+`DEC` value:
+
+    rate = 2888 / DEC   decibels per second
+
+That product held constant to 0.1% from `DEC 10` to `DEC FF`. Rearranged, the
+time to fall 60 dB is simply proportional:
+
+    T60 = DEC x 20.8 ms
+
+So `DEC 30` is about a second, `DEC 60` about two, and `DEC FF` about 5.3.
+Doubling `DEC` doubles the time. No polynomial fits this -- trying to fit
+`(1 - t/T)^p` just pushes `p` to whatever ceiling the search allows, which is the
+signature of approximating an exponential with a power curve.
+
+### A MOD bus SCALES its destination, it does not add to it
+
+With operator A at `LEV 40` and `MOD A` set to `1▸LEV`, sweeping `MOD1` through
+`00/40/80/C0/FF` produced 0, 1/4, 2/4, 3/4 and 4/4 of the level that `LEV 40`
+gives on its own.
+
+**An operator whose MOD bus rests at zero is silent, however high its own LEVEL
+is set.** An operator's `LEVEL` is therefore its value *at full bus*, not a
+standing amount the bus adds to.
+
+This is the single most important thing to get right when a patch uses MOD
+slots. Under the additive reading, a patch whose bus rests at zero sounds
+perfectly normal; on the device it is silent. To use a bus as a swell, leave the
+`MOD n` amount at `00` and let an envelope drive it; to use an LFO on a bus, park
+the `MOD n` amount mid-range so the LFO has somewhere to swing in both
+directions.
+
+### Carrier level is linear
+
+Peak output was proportional to `LEV` from `00` to `80`, with a crest factor of
+1.414 throughout, confirming a clean sine. Above that the recording's own chain
+limited, so the top of that range has not been measured cleanly.
+
+### Operator output clips above about LEV C0
+
+A plain sine holds a crest factor of 1.41 from `LEV 20` up to `C0`, then
+flattens to 1.13 at `E0` and 1.06 at `FF`. The peak stops rising at that point
+while the RMS keeps climbing, which is what a signal running into a ceiling looks
+like.
+
+This happens inside the instrument, ahead of the filter — a resonant filter peak
+in the same recording reached more than twice that level cleanly — so turning the
+recording level down does not avoid it. Keep operators that are not themselves
+being measured at `LEV A0` or below.
+
+### Still unmeasured
+
+Modulation index, feedback depth, LFO rate and the `SW2`-`SW6` waveforms were all
+measured from a recording whose operators sat at `LEV FF`, so their spectra were
+taken from clipped waveforms and cannot be trusted. The calibration instruments
+now sit at `LEV A0`, so re-recording the song will settle them.
+
+---
+
+## 8. Web Audio vs Hardware Implementation Gotchas
+
+1. **Linear FM vs Phase Modulation**: Standard Web Audio `Oscillator.frequency`
+   modulation is linear Hz Frequency Modulation, and it is not a workable
+   substitute. For a single sine modulator the two coincide when the deviation
+   is set to $\Delta f = \text{Index}_{\text{cycles}} \cdot f_{\text{modulator}}$,
+   but the equivalence breaks down as soon as operators are cascaded, and the
+   deviation has to be clamped to keep the instantaneous frequency positive —
+   which changes the timbre as you play up the keyboard. Real phase modulation
+   needs a per-sample renderer (an `AudioWorklet`), which is what this app uses.
+2. **Feedback needs a one-sample loop**: a `DelayNode` cannot do it. Web Audio
+   enforces a minimum delay of one render quantum (128 samples) in any cycle, so
+   a feedback loop built from nodes is roughly 3 ms late and turns into noise at
+   any setting. Operator self-feedback has to live inside the worklet.
+3. **Op C & Op D Silencing**: In Algorithm 07 (`[A>B] + [C>D]`), if `LEV C` or
+   `LEV D` are left at `80` (50%), Op C modulates Op D into a loud buzzy synth
+   tone. Setting `LEV C = 00` and `LEV D = 00` isolates the pure 2-op sine piano
+   pair.
+4. **Parameter units are not linear**: the M8's `00`-`FF` envelope times, LFO
+   frequencies and filter cutoffs are all curves, and Dirtywave does not publish
+   them. If an app both previews a patch and exports it, the preview must derive
+   its audio values from the same raw parameters it displays, or the two will
+   drift apart and the exported instrument will not sound like the preview.

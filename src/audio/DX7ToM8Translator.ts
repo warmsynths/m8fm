@@ -1,104 +1,106 @@
-import type { Dx7Patch, Dx7Op } from './SysExParser';
-import type { FmParams, OperatorParams } from './FmEngine';
+import type { Dx7Op, Dx7Patch } from './SysExParser';
+import {
+  DEST_VOLUME,
+  FILTER_OFF,
+  OSC_SIN,
+  clampByte,
+  createDefaultPatch,
+  multiplierToRatio,
+  secondsToEnvAttack,
+  secondsToEnvDecay
+} from './M8Patch';
+import type { M8Patch } from './M8Patch';
 
+/**
+ * Folds a 6-operator DX7 voice down to the M8's 4 operators.
+ *
+ * The M8 has no 6-op mode, so this is lossy by construction: two operators are
+ * dropped and the DX7's 32 algorithms are collapsed onto the M8's 12. The result
+ * is a starting point to tweak on the device, not a faithful port.
+ */
 export class DX7ToM8Translator {
-  
-  // Maps a DX7 value (0-99) to a time value in seconds (roughly)
-  // DX7 envelopes are rates, so 99 is fast (0s), 0 is slow (long)
-  private static mapRateToSeconds(rate: number): number {
-    if (rate === 0) return 10.0;
-    // rough exponential curve
+  /** DX7 EG rates run backwards: 99 is instant, 0 is very slow. */
+  private static rateToSeconds(rate: number): number {
+    if (rate <= 0) return 10.0;
     return 10.0 * Math.pow(0.5, rate / 10.0);
   }
 
-  private static mapLevel(dx7Level: number): number {
-    if (dx7Level === 0) return 0;
-    // DX7 levels are roughly 0.75 dB per step, with 99 being 0dB
+  /** DX7 output levels are roughly 0.75 dB per step with 99 at unity. */
+  private static levelToByte(dx7Level: number): number {
+    if (dx7Level <= 0) return 0;
     const db = (dx7Level - 99) * 0.75;
-    return Math.pow(10, db / 20.0);
+    return clampByte(Math.pow(10, db / 20.0) * 255);
   }
 
-  private static mapRatio(op: Dx7Op): number {
-    if (op.mode === 1) { // Fixed frequency
-      return 1.0; // M8 only supports ratios easily
-    }
+  private static ratioMultiplier(op: Dx7Op): number {
+    // Fixed-frequency operators have no M8 equivalent, so they fall back to 1:1.
+    if (op.mode === 1) return 1.0;
     const coarse = op.coarse === 0 ? 0.5 : op.coarse;
-    return coarse + (op.fine / 100.0);
+    return coarse + op.fine / 100.0;
   }
 
-  public static translate(patch: Dx7Patch, keepIndices?: number[]): { m8Params: FmParams, fullParams: FmParams } {
-    const fullParams: FmParams = {
-      algorithm: patch.algorithm,
-      feedback: (patch.feedback / 7.0) * 0.3,
-      operators: []
-    };
+  /**
+   * DX7 algorithms 1-6 are deep stacks, 7-17 mix a stack with parallel
+   * modulators, 18-31 have several carriers, and 32 is fully additive.
+   */
+  private static m8Algo(dx7Algorithm: number): number {
+    if (dx7Algorithm >= 32) return 0x0b; // A+B+C+D
+    if (dx7Algorithm >= 22) return 0x08; // [A>B]+[A>C]+[A>D]
+    if (dx7Algorithm >= 18) return 0x07; // [A>B]+[C>D]
+    if (dx7Algorithm >= 7) return 0x04;  // [A+B+C]>D
+    return 0x00;                         // A>B>C>D
+  }
 
-    // Build the full 6-operator patch parameters
-    for (let i = 0; i < 6; i++) {
-      const op = patch.ops[i];
-      fullParams.operators.push({
-        ratio: this.mapRatio(op),
-        level: this.mapLevel(op.level),
-        attack: this.mapRateToSeconds(op.egRate[0]),
-        decay: this.mapRateToSeconds(op.egRate[1]),
-        sustain: op.egLevel[2] / 99.0,
-        release: this.mapRateToSeconds(op.egRate[3]),
-        pitchEnvDepth: 0,
-        pitchEnvDecay: 0,
-      });
+  /**
+   * @param patch - the parsed DX7 voice
+   * @param keepIndices - which four DX7 operators to keep; when omitted the four
+   *   with the highest output level are used.
+   */
+  public static translate(patch: Dx7Patch, keepIndices?: number[]): M8Patch {
+    let kept = keepIndices;
+    if (!kept || kept.length !== 4) {
+      kept = patch.ops
+        .map((op, index) => ({ index, level: op.level }))
+        .sort((a, b) => b.level - a.level)
+        .slice(0, 4)
+        .map((s) => s.index)
+        .sort((a, b) => a - b);
     }
 
-    const m8Params: FmParams = {
-      algorithm: 1,
-      feedback: (patch.feedback / 7.0) * 0.3, // Scale down feedback to prevent M8 noise blowout
-      operators: []
-    };
+    const out = createDefaultPatch();
+    out.name = patch.name.slice(0, 12) || 'DX7';
+    out.algo = this.m8Algo(patch.algorithm);
+    out.filter = { type: FILTER_OFF, cutoff: 0xff, res: 0x00 };
 
-    // Heuristic: Drop the 2 operators with the lowest output levels.
-    // If it's a carrier, it will have a high level.
-    // If it's a modulator, its level determines modulation index.
-    // We'll score operators by their level. 
-    // DX7 Ops are stored 0=Op1 ... 5=Op6.
-    
-    let keptIndices = keepIndices;
-    if (!keptIndices || keptIndices.length !== 4) {
-      // Create an array of operator indices and sort by level (descending)
-      const opScores = patch.ops.map((op, index) => ({ index, level: op.level }));
-      opScores.sort((a, b) => b.level - a.level);
-      
-      // Take the top 4
-      keptIndices = opScores.slice(0, 4).map(s => s.index).sort();
-    }
-    
-    const keptOps = keptIndices.map(idx => patch.ops[idx]);
-
-    // Map the 4 kept operators to M8 OperatorParams
     for (let i = 0; i < 4; i++) {
-      const dx7Op = keptOps[i];
-      const opParams: OperatorParams = {
-        ratio: this.mapRatio(dx7Op),
-        level: this.mapLevel(dx7Op.level),
-        attack: this.mapRateToSeconds(dx7Op.egRate[0]),
-        decay: this.mapRateToSeconds(dx7Op.egRate[1]), // Simple mapping
-        sustain: this.mapLevel(dx7Op.egLevel[2]), 
-        release: this.mapRateToSeconds(dx7Op.egRate[3]),
-        pitchEnvDepth: 0,
-        pitchEnvDecay: 0
+      const op = patch.ops[kept[i]];
+      const { ratio, ratioFine } = multiplierToRatio(this.ratioMultiplier(op));
+      out.operators[i] = {
+        shape: OSC_SIN,
+        ratio,
+        ratioFine,
+        level: this.levelToByte(op.level),
+        // DX7 feedback is per-algorithm rather than per-operator; scale it down
+        // so an imported voice does not arrive as a noise generator.
+        feedback: clampByte((patch.feedback / 7) * 0x50),
+        modA: 0x00,
+        modB: 0x00
       };
-      m8Params.operators.push(opParams);
     }
 
-    // Heuristic for picking the M8 algorithm (1, 2, or 3)
-    // DX7 algorithms 1-18 mostly have 1 carrier. Algorithms 19-32 have multiple carriers.
-    // We'll use a very basic heuristic:
-    if (patch.algorithm >= 18) {
-      m8Params.algorithm = 2; // (Op4->Op3) + (Op2->Op1)
-    } else if (patch.algorithm >= 7 && patch.algorithm <= 11) {
-      m8Params.algorithm = 3; // (Op4+Op3+Op2)->Op1
-    } else {
-      m8Params.algorithm = 1; // Op4->Op3->Op2->Op1
-    }
+    // The M8 has no per-operator envelopes, so the loudest kept operator's EG
+    // becomes the instrument's amplitude envelope. Without this the imported
+    // voice would have no VOLUME modulator at all and would drone.
+    const loudest = patch.ops[kept.reduce((best, i) => (patch.ops[i].level > patch.ops[best].level ? i : best), kept[0])];
+    out.envelopes[0] = {
+      amount: 0xff,
+      attack: secondsToEnvAttack(this.rateToSeconds(loudest.egRate[0])),
+      hold: 0x00,
+      decay: secondsToEnvDecay(this.rateToSeconds(loudest.egRate[1])),
+      dest: DEST_VOLUME,
+      retrigger: 0x00
+    };
 
-    return { m8Params, fullParams };
+    return out;
   }
 }

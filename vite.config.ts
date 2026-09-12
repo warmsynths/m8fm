@@ -12,6 +12,12 @@ function patchM8JsPlugin(): Plugin {
           map: null,
         };
       }
+      if (code.startsWith('#!')) {
+        return {
+          code: code.replace(/^#![^\r\n]*/, '// shebang stripped'),
+          map: null,
+        };
+      }
     },
   };
 }
