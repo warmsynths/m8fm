@@ -4,6 +4,7 @@ import { customElement, state } from 'lit/decorators.js';
 import './style.css';
 import { AudioController } from './audio/AudioController';
 import type { AnchorName } from './audio/MacroMapper';
+import { getDemoPatternForMachine } from './audio/DemoPatterns';
 
 const audio = new AudioController();
 (window as any).audio = audio;
@@ -180,6 +181,8 @@ export class FmStudio extends LitElement {
   @state() accessor grab: string | null = null;
   @state() accessor view: 'desktop' | 'mobile' = 'desktop';
 
+  @state() accessor isDemoPlaying = false;
+
   private _disp: PresetVals | null = null;
   private _raf: number | null = null;
   private _last = 0;
@@ -205,6 +208,31 @@ export class FmStudio extends LitElement {
     if (this._onResize) {
       window.removeEventListener('resize', this._onResize);
     }
+    if (this.isDemoPlaying) {
+      this.stopDemo();
+    }
+  }
+
+  toggleDemo() {
+    if (this.isDemoPlaying) {
+      this.stopDemo();
+    } else {
+      this.playDemo();
+    }
+  }
+
+  playDemo() {
+    const m = this.mach();
+    const pattern = getDemoPatternForMachine(m.id);
+    audio.playDemo(pattern, () => {
+      this.requestUpdate();
+    });
+    this.isDemoPlaying = true;
+  }
+
+  stopDemo() {
+    audio.stopDemo();
+    this.isDemoPlaying = false;
   }
 
   clamp(v: number, lo: number, hi: number): number {
@@ -292,20 +320,21 @@ export class FmStudio extends LitElement {
     const m = MACHINES[i];
     audio.loadAnchor(this.getAnchorName(m.id));
     this.syncAudioParams();
-    audio.triggerNote(60, 0.85, 320);
+    if (this.isDemoPlaying) {
+      this.playDemo();
+    }
   }
 
   selectPreset(i: number) {
     this.preset = i;
     this.v = null;
+    audio.selectPreset(i);
     this.syncAudioParams();
-    audio.triggerNote(60, 0.85, 320);
   }
 
   resetAll() {
     this.v = null;
     this.syncAudioParams();
-    audio.triggerNote(60, 0.85, 320);
   }
 
   private getAnchorName(id: string): AnchorName {
@@ -429,7 +458,17 @@ export class FmStudio extends LitElement {
 
   exportM8() {
     const m = this.mach();
-    audio.exportPatch(`${m.name.replace(/\n/g, '_')}_Patch.m8i`);
+    const pName = m.presets[this.preset][0].replace(/[^A-Za-z0-9_]/g, '_');
+    const mName = m.name.replace(/\n/g, '_');
+    audio.exportPatch(`${mName}_${pName}.m8i`);
+  }
+
+  exportSong() {
+    const m = this.mach();
+    const pattern = getDemoPatternForMachine(m.id);
+    const pName = m.presets[this.preset][0].replace(/[^A-Za-z0-9_]/g, '_');
+    const mName = m.name.replace(/\n/g, '_');
+    audio.exportSong(`${mName}_${pName}_Song.m8s`, pattern, `${mName.slice(0, 6)}_${pName}`.slice(0, 12));
   }
 
   render() {
@@ -628,7 +667,27 @@ export class FmStudio extends LitElement {
                 </div>
                 <div style="font:600 26px/1 'Space Grotesk',sans-serif;letter-spacing:-.02em;color:var(--ink,#1b1e24)">${mach.name.replace('\n', ' ')}</div>
                 <div style="font:500 10px 'JetBrains Mono',monospace;letter-spacing:.16em;color:var(--ink2,rgba(0,0,0,.72))">${(this.v ? '*' : '') + mach.presets[pi][0]}</div>
-                <div style="flex:1;min-width:12px"></div>
+                ${!isMobile ? html`<div style="flex:1;min-width:12px"></div>` : nothing}
+                <button
+                  type="button"
+                  @click=${() => this.toggleDemo()}
+                  style="cursor:pointer;border:none;border-radius:7px;background:${this.isDemoPlaying ? P.accent : P.track};color:${this.isDemoPlaying ? P.panel : P.ink2};display:inline-flex;align-items:center;justify-content:center;gap:6px;height:30px;padding:${isMobile ? '0 10px' : '0 12px'};font:700 9.5px 'JetBrains Mono',monospace;letter-spacing:.14em;transition:all 150ms ease"
+                  title="${this.isDemoPlaying ? 'Stop demo' : 'Play demo'}"
+                >
+                  ${this.isDemoPlaying
+                    ? html`
+                        <svg width="8" height="8" viewBox="0 0 8 8" fill="currentColor">
+                          <rect width="8" height="8" rx="1"></rect>
+                        </svg>
+                        ${!isMobile ? html`<span>STOP</span>` : nothing}
+                      `
+                    : html`
+                        <svg width="8" height="9" viewBox="0 0 8 9" fill="currentColor">
+                          <polygon points="0,0 8,4.5 0,9"></polygon>
+                        </svg>
+                        ${!isMobile ? html`<span>DEMO</span>` : nothing}
+                      `}
+                </button>
               </div>
 
               <!-- Real-Time Onset & Decay Waveform Visualizer -->
@@ -801,18 +860,23 @@ export class FmStudio extends LitElement {
 
             </div>
 
-            <!-- Footer Legend & Export M8 Action -->
-            <div style="display:flex;align-items:center;gap:14px;padding:6px 20px 18px;flex-wrap:wrap">
-              <div style="font:400 8.5px 'JetBrains Mono',monospace;letter-spacing:.12em;color:var(--ink2,rgba(0,0,0,.72))">
-                DRAG A CELL · DOUBLE-CLICK TO REVERT SLOT
-              </div>
-              <div style="flex:1"></div>
+            <!-- Footer Actions: Export M8 Instrument & Song -->
+            <div style="display:flex;align-items:center;justify-content:flex-end;gap:18px;padding:6px 20px 18px;flex-wrap:wrap">
               <button
                 type="button"
                 @click=${() => this.exportM8()}
                 style="border:none;background:transparent;cursor:pointer;font:500 8.5px 'JetBrains Mono',monospace;letter-spacing:.12em;color:var(--accent,#2f49d8);padding:0"
+                title="Export current patch as Dirtywave M8 Instrument (.m8i)"
               >
                 EXPORT .M8I
+              </button>
+              <button
+                type="button"
+                @click=${() => this.exportSong()}
+                style="border:none;background:transparent;cursor:pointer;font:500 8.5px 'JetBrains Mono',monospace;letter-spacing:.12em;color:var(--accent,#2f49d8);padding:0"
+                title="Export complete groove as Dirtywave M8 Song (.m8s)"
+              >
+                EXPORT .M8S
               </button>
             </div>
 
