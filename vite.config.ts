@@ -25,6 +25,10 @@ function patchM8JsPlugin(): Plugin {
 export default defineConfig({
   base: './',
   plugins: [patchM8JsPlugin()],
+  server: {
+    port: 5180,
+    host: '127.0.0.1',
+  },
   build: {
     outDir: 'docs',
   },

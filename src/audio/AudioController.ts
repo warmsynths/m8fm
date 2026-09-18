@@ -191,6 +191,40 @@ export class AudioController {
     this.engine.allNotesOff();
   }
 
+  public noteOn(note: number, vel = 1.0) {
+    this.init();
+    if (this.currentAnchor === 'Percussion') {
+      const presetIdx = Math.min(3, Math.max(0, note % 4));
+      const voiceId = 200 + presetIdx * 10;
+      const patch = this.mapper.getPatchForPreset(presetIdx);
+      const spec = buildRenderSpec(patch);
+      this.engine.noteOn(voiceId, noteToFrequency(note), vel, spec);
+      if (this.onNoteTrigger) this.onNoteTrigger(note, vel);
+    } else {
+      const effectiveNote = Math.max(12, Math.min(127, note + this.octaveShift * 12));
+      this.engine.noteOn(effectiveNote, noteToFrequency(effectiveNote), vel);
+      if (this.onNoteTrigger) this.onNoteTrigger(effectiveNote, vel);
+    }
+  }
+
+  public noteOff(note: number) {
+    if (this.currentAnchor === 'Percussion') {
+      const presetIdx = Math.min(3, Math.max(0, note % 4));
+      const voiceId = 200 + presetIdx * 10;
+      this.engine.noteOff(voiceId);
+    } else {
+      const effectiveNote = Math.max(12, Math.min(127, note + this.octaveShift * 12));
+      this.engine.noteOff(effectiveNote);
+    }
+  }
+
+  public triggerNote(note: number, vel = 1.0, durationMs = 300) {
+    this.noteOn(note, vel);
+    setTimeout(() => {
+      this.noteOff(note);
+    }, durationMs);
+  }
+
   public loadAnchor(anchor: AnchorName) {
     this.currentAnchor = anchor;
     this.init();
