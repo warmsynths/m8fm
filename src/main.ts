@@ -35,9 +35,9 @@ const MACHINES: MachineDef[] = [
     algo: 'A>B+C>D',
     glyph: 'M4 14h26v14H4z M12.6 14v9 M21.2 14v9 M4 23h26 M7 9.5c6-4.5 14-4.5 20 0 M17 5.6h.1',
     presets: [
-      ['MK1', { ratio: 2, bend: 0.46, time: 0.52, fbk: 18, noise: 5, atk: 0.07, rel: 0.74, mod: 38 }],
-      ['GLASS', { ratio: 4, bend: 0.3, time: 0.68, fbk: 8, noise: 2, atk: 0.05, rel: 0.62, mod: 26 }],
-      ['DIRT WURLI', { ratio: 1.5, bend: 0.68, time: 0.34, fbk: 44, noise: 18, atk: 0.09, rel: 0.85, mod: 58 }]
+      ['MK1', { ratio: 2, bend: 0.52, time: 0.55, fbk: 12, noise: 4, atk: 0.05, rel: 0.76, mod: 35 }],
+      ['GLASS', { ratio: 5, bend: 0.28, time: 0.82, fbk: 0, noise: 0, atk: 0.05, rel: 0.88, mod: 75 }],
+      ['DIRT WURLI', { ratio: 1.5, bend: 0.82, time: 0.38, fbk: 58, noise: 22, atk: 0.08, rel: 0.58, mod: 42 }]
     ]
   },
   {
@@ -46,9 +46,9 @@ const MACHINES: MachineDef[] = [
     algo: 'A>B>C>D',
     glyph: 'M2 27h30 M6 27a11 11 0 0122 0 M11 27a6 6 0 0112 0 M17 24.4h.1',
     presets: [
-      ['DEEP', { ratio: 0.5, bend: 0.78, time: 0.6, fbk: 26, noise: 0, atk: 0.1, rel: 0.96, mod: 54 }],
-      ['REESE', { ratio: 1, bend: 0.58, time: 0.72, fbk: 48, noise: 4, atk: 0.14, rel: 0.9, mod: 66 }],
-      ['808', { ratio: 0.5, bend: 0.9, time: 0.3, fbk: 12, noise: 2, atk: 0.05, rel: 1, mod: 72 }]
+      ['DEEP', { ratio: 0.5, bend: 0.15, time: 0.70, fbk: 8, noise: 0, atk: 0.06, rel: 0.95, mod: 22 }],
+      ['REESE', { ratio: 1.5, bend: 0.45, time: 0.55, fbk: 62, noise: 8, atk: 0.12, rel: 0.82, mod: 78 }],
+      ['808', { ratio: 0.5, bend: 0.88, time: 0.85, fbk: 28, noise: 4, atk: 0.05, rel: 1.0, mod: 48 }]
     ]
   },
   {
@@ -57,9 +57,9 @@ const MACHINES: MachineDef[] = [
     algo: 'A+B>C>D',
     glyph: 'M4 21h22v5H4z M10 18 21.4 7.6 M23.6 5.4a2.7 2.7 0 100 5.4 2.7 2.7 0 100-5.4 M8 26v3 M22 26v3',
     presets: [
-      ['WOOD', { ratio: 3, bend: 0.72, time: 0.26, fbk: 10, noise: 14, atk: 0.05, rel: 0.7, mod: 44 }],
-      ['GLASS BELL', { ratio: 7, bend: 0.34, time: 0.7, fbk: 6, noise: 4, atk: 0.05, rel: 0.6, mod: 30 }],
-      ['BONE', { ratio: 2.5, bend: 0.86, time: 0.2, fbk: 34, noise: 24, atk: 0.05, rel: 0.78, mod: 50 }]
+      ['WOOD', { ratio: 2.0, bend: 0.55, time: 0.22, fbk: 4, noise: 12, atk: 0.05, rel: 0.35, mod: 28 }],
+      ['GLASS BELL', { ratio: 7.0, bend: 0.25, time: 0.85, fbk: 15, noise: 2, atk: 0.05, rel: 0.92, mod: 68 }],
+      ['BONE', { ratio: 3.5, bend: 0.82, time: 0.45, fbk: 42, noise: 35, atk: 0.05, rel: 0.65, mod: 60 }]
     ]
   },
   {
@@ -68,9 +68,9 @@ const MACHINES: MachineDef[] = [
     algo: '(A+B)>(C+D)',
     glyph: 'M6 10h22 M3 16h28 M8 22h18 M12 28h10',
     presets: [
-      ['DRIFT', { ratio: 1.5, bend: 0.22, time: 0.86, fbk: 14, noise: 6, atk: 0.42, rel: 0.5, mod: 24 }],
-      ['CHOIR', { ratio: 2, bend: 0.18, time: 0.9, fbk: 8, noise: 2, atk: 0.56, rel: 0.44, mod: 18 }],
-      ['VOID', { ratio: 6, bend: 0.26, time: 0.8, fbk: 40, noise: 12, atk: 0.34, rel: 0.56, mod: 46 }]
+      ['DRIFT', { ratio: 1.5, bend: 0.20, time: 0.75, fbk: 34, noise: 6, atk: 0.48, rel: 0.78, mod: 55 }],
+      ['CHOIR', { ratio: 3.0, bend: 0.42, time: 0.65, fbk: 12, noise: 24, atk: 0.62, rel: 0.72, mod: 32 }],
+      ['VOID', { ratio: 6.0, bend: 0.78, time: 0.92, fbk: 48, noise: 10, atk: 0.35, rel: 0.95, mod: 72 }]
     ]
   },
   {
@@ -79,10 +79,10 @@ const MACHINES: MachineDef[] = [
     algo: 'A>B+C>D',
     glyph: 'M9 9h16l3 18H6z M6 15h22 M11 9 9.6 27 M23 9l1.4 18',
     presets: [
-      ['KICK', { ratio: 0.5, bend: 0.92, time: 0.18, fbk: 22, noise: 8, atk: 0.05, rel: 1, mod: 78 }],
-      ['SNARE', { ratio: 2.5, bend: 0.8, time: 0.24, fbk: 30, noise: 52, atk: 0.05, rel: 0.82, mod: 48 }],
-      ['CLOSED HAT', { ratio: 8, bend: 0.94, time: 0.14, fbk: 16, noise: 74, atk: 0.05, rel: 0.55, mod: 34 }],
-      ['OPEN HAT', { ratio: 8, bend: 0.5, time: 0.5, fbk: 20, noise: 68, atk: 0.05, rel: 0.6, mod: 38 }]
+      ['KICK', { ratio: 0.5, bend: 0.85, time: 0.45, fbk: 38, noise: 12, atk: 0.05, rel: 0.95, mod: 65 }],
+      ['SNARE', { ratio: 2.5, bend: 0.72, time: 0.28, fbk: 25, noise: 72, atk: 0.05, rel: 0.75, mod: 52 }],
+      ['CLOSED HAT', { ratio: 8.0, bend: 0.92, time: 0.08, fbk: 18, noise: 85, atk: 0.05, rel: 0.35, mod: 42 }],
+      ['OPEN HAT', { ratio: 8.0, bend: 0.48, time: 0.75, fbk: 32, noise: 78, atk: 0.05, rel: 0.82, mod: 58 }]
     ]
   },
   {
@@ -91,9 +91,9 @@ const MACHINES: MachineDef[] = [
     algo: 'A>B+C+D',
     glyph: 'M4 26 11 11v15l7-15v15l7-15v15 M4 30h26',
     presets: [
-      ['VOLT', { ratio: 2, bend: 0.5, time: 0.46, fbk: 32, noise: 6, atk: 0.1, rel: 0.7, mod: 52 }],
-      ['ACID', { ratio: 1, bend: 0.62, time: 0.36, fbk: 62, noise: 10, atk: 0.06, rel: 0.8, mod: 82 }],
-      ['DRUNK', { ratio: 1.5, bend: 0.4, time: 0.62, fbk: 24, noise: 20, atk: 0.2, rel: 0.52, mod: 40 }]
+      ['VOLT', { ratio: 2.0, bend: 0.48, time: 0.42, fbk: 28, noise: 4, atk: 0.05, rel: 0.68, mod: 62 }],
+      ['ACID', { ratio: 1.0, bend: 0.85, time: 0.24, fbk: 72, noise: 8, atk: 0.05, rel: 0.78, mod: 88 }],
+      ['DRUNK', { ratio: 1.5, bend: 0.32, time: 0.68, fbk: 52, noise: 26, atk: 0.22, rel: 0.58, mod: 44 }]
     ]
   }
 ];
@@ -387,10 +387,13 @@ export class FmStudio extends LitElement {
       audio.setMacro('Chorus', v.mod / 100);
       audio.setMacro('Hollow', v.bend);
     } else if (anchor === 'Percussion') {
+      audio.setMacro('Punch', v.bend);
+      audio.setMacro('Tone', v.ratio / 8);
+      audio.setMacro('Decay', v.time);
+      audio.setMacro('Dirt', v.fbk / 100);
       audio.setMacro('Body', v.rel);
       audio.setMacro('Snap', v.bend);
       audio.setMacro('Noise', v.noise / 100);
-      audio.setMacro('Decay', v.time);
     } else if (anchor === 'Vintage Lead') {
       audio.setMacro('Timbre', v.ratio / 8);
       audio.setMacro('Filter Cutoff', v.mod / 100);

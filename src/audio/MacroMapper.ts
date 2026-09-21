@@ -114,8 +114,10 @@ export class MacroMapper {
     return this.currentPatch;
   }
 
-  private macro(name: string): number {
-    return this.macroState[name] ?? 0;
+  private macro(name: string, fallbackName?: string, defaultValue: number = 0): number {
+    if (this.macroState[name] !== undefined) return this.macroState[name];
+    if (fallbackName && this.macroState[fallbackName] !== undefined) return this.macroState[fallbackName];
+    return defaultValue;
   }
 
   private updatePatch() {
@@ -134,54 +136,109 @@ export class MacroMapper {
   }
 
   private applyElectricPiano(patch: M8Patch) {
-    // Tine material moves the strike up the harmonic series. Integer ratios
-    // only: a fractional tine ratio beats against the body pair and is the
-    // difference between a bell and a clang.
-    setRatio(patch, 0, 7 + Math.floor(this.macro('Tine Material') * 7));
+    // 1. Ratio / Tine Material: integer harmonic series (woody reed to crystalline chime)
+    const tine = this.macro('Tine Material', 'Ratio', 0.5);
+    const tineRatios = [1, 2, 3, 4, 7, 9, 11, 14];
+    const tineIdx = Math.min(tineRatios.length - 1, Math.floor(tine * tineRatios.length));
+    setRatio(patch, 0, tineRatios[tineIdx]);
 
-    // Strike force is how hard the tine is hit: how bright it peaks, how long
-    // it rings, and how much air the filter lets through.
-    const strike = this.macro('Strike Force');
-    patch.operators[0].level = lerpByte(0x98, 0xd8, strike);
-    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.45), secondsToEnvDecay(0.95), strike);
-    patch.filter.cutoff = lerpByte(0xc4, 0xec, strike);
+    // 2. Strike Force / Contour Bend: attack velocity, peak brightness & filter
+    const strike = this.macro('Strike Force', 'Contour Bend', 0.5);
+    patch.operators[0].level = lerpByte(0x70, 0xf0, strike);
+    patch.filter.cutoff = lerpByte(0x90, 0xfc, strike);
 
-    // Bark is the body pair's modulation index: the growl a Rhodes gets when
-    // you dig into it, rather than more of the tine.
-    const bark = this.macro('Bark');
-    patch.operators[2].level = lerpByte(0x30, 0x90, bark);
+    // 3. Contour Time: strike transient decay duration (short hammer click to ringing chime)
+    const cTime = this.macro('Contour Time', undefined, 0.5);
+    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.08), secondsToEnvDecay(1.4), cTime * 0.7 + strike * 0.3);
 
-    const tremolo = this.macro('Tremolo Depth');
-    patch.lfos[0].amount = lerpByte(0x00, 0x60, tremolo);
-    patch.lfos[0].freq = lerpByte(0xb8, 0xd8, tremolo);
+    // 4. Bark / Feedback: Rhodes growl & Wurli overdrive saturation on body pair
+    const bark = this.macro('Bark', 'Feedback', 0.2);
+    patch.operators[2].level = lerpByte(0x20, 0xc8, bark);
+    patch.operators[2].feedback = lerpByte(0x00, 0x48, bark);
+
+    // 5. Tremolo / Mod Index: master tremolo depth and stereo chorus
+    const tremolo = this.macro('Tremolo Depth', 'Mod Index', 0.3);
+    patch.lfos[0].amount = lerpByte(0x00, 0x78, tremolo);
+    patch.lfos[0].freq = lerpByte(0xa8, 0xe0, tremolo);
+    patch.mixer.cho = lerpByte(0x40, 0xe0, tremolo);
+
+    // 6. Noise: mechanical hammer click and key-off grain
+    const noise = this.macro('Noise', undefined, 0);
+    if (noise > 0) {
+      patch.operators[0].feedback = lerpByte(0x00, 0x40, noise);
+      patch.filter.res = lerpByte(0x10, 0x40, noise);
+    }
+
+    // 7. Envelope: Attack & Release
+    const atk = this.macro('Attack', undefined, 0.05);
+    const rel = this.macro('Release', undefined, 0.74);
+    patch.envelopes[0].attack = lerpByte(0x00, secondsToEnvAttack(0.40), atk);
+    patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(0.35), secondsToEnvDecay(5.5), rel);
   }
 
   private applySubBass(patch: M8Patch) {
-    const weight = this.macro('Sub Weight');
-    patch.operators[3].level = lerpByte(0xa8, 0xe8, weight);
+    // 1. Ratio: Sub harmonic foundation (sub-octave, fundamental, fifth, octave)
+    const ratioNorm = this.macro('Ratio', undefined, 0.06);
+    if (ratioNorm < 0.20) {
+      patch.operators[3].ratio = 0;
+      patch.operators[3].ratioFine = 50; // 0.5x sub-octave
+    } else if (ratioNorm < 0.45) {
+      patch.operators[3].ratio = 1;
+      patch.operators[3].ratioFine = 0; // 1.0x fundamental
+    } else if (ratioNorm < 0.70) {
+      patch.operators[3].ratio = 1;
+      patch.operators[3].ratioFine = 50; // 1.5x fifth (Reese drone)
+    } else {
+      patch.operators[3].ratio = 2;
+      patch.operators[3].ratioFine = 0; // 2.0x octave
+    }
 
-    const growl = this.macro('Top-End Growl');
-    patch.operators[0].level = lerpByte(0x18, 0x78, growl);
-    patch.operators[1].level = lerpByte(0x40, 0x88, growl);
-    patch.operators[0].feedback = lerpByte(0x00, 0x40, growl);
+    // 2. Sub Weight / Release: Sub fundamental weight and body warmth
+    const weight = this.macro('Sub Weight', 'Release', 0.85);
+    patch.operators[3].level = lerpByte(0x80, 0xf8, weight);
+    patch.filter.cutoff = lerpByte(0x60, 0xc0, weight);
 
-    const snap = this.macro('Pitch Snap');
-    patch.envelopes[1].amount = lerpByte(0x00, 0x40, snap);
-    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.05), secondsToEnvDecay(0.14), snap);
+    // 3. Top-End Growl / Feedback: Midrange harmonics and analog grit
+    const growl = this.macro('Top-End Growl', 'Feedback', 0.2);
+    patch.operators[0].level = lerpByte(0x00, 0x98, growl);
+    patch.operators[1].level = lerpByte(0x20, 0xb0, growl);
+    patch.operators[0].feedback = lerpByte(0x00, 0x68, growl);
+    patch.operators[3].feedback = lerpByte(0x00, 0x38, growl);
 
-    const boom = this.macro('Boom');
-    patch.envelopes[0].hold = lerpByte(0x00, secondsToEnvDecay(0.35), boom);
-    patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(1.6), secondsToEnvDecay(3.6), boom);
+    // 4. Pitch Snap / Contour Bend: Punch transient pitch dive
+    const snap = this.macro('Pitch Snap', 'Contour Bend', 0.3);
+    patch.envelopes[1].amount = lerpByte(0x00, 0x78, snap);
+    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.02), secondsToEnvDecay(0.18), snap);
+
+    // 5. Boom / Contour Time: Tail duration from punchy kick-bass to 808 sub drone
+    const boom = this.macro('Boom', 'Contour Time', 0.6);
+    patch.envelopes[0].hold = lerpByte(0x00, secondsToEnvDecay(0.40), boom);
+    patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(0.35), secondsToEnvDecay(4.5), boom);
+
+    // 6. Mod Index, Attack & Noise
+    const modIdx = this.macro('Mod Index', undefined, 0.4);
+    patch.filter.res = lerpByte(0x10, 0x58, modIdx);
+    const atk = this.macro('Attack', undefined, 0.05);
+    patch.envelopes[0].attack = lerpByte(0x00, secondsToEnvAttack(0.30), atk);
+    const noise = this.macro('Noise', undefined, 0);
+    if (noise > 0) {
+      patch.operators[1].feedback = lerpByte(0x00, 0x50, noise);
+    }
   }
 
   private applyMallet(patch: M8Patch) {
-    // Harmonic focus steps between inharmonic (wooden), harmonic (bell) and
-    // wide-interval (glassy) modulator pairs.
-    const focus = this.macro('Harmonic Focus');
-    if (focus < 0.34) {
+    // 1. Harmonic Focus / Ratio: steps across wooden, bell, and glassy pairs
+    const focus = this.macro('Harmonic Focus', 'Ratio', 0.4);
+    if (focus < 0.20) {
+      setRatio(patch, 0, 2.0);
+      setRatio(patch, 2, 3.0);
+    } else if (focus < 0.40) {
       setRatio(patch, 0, 3.5);
       setRatio(patch, 2, 5.0);
-    } else if (focus < 0.67) {
+    } else if (focus < 0.60) {
+      setRatio(patch, 0, 4.0);
+      setRatio(patch, 2, 7.0);
+    } else if (focus < 0.80) {
       setRatio(patch, 0, 2.0);
       setRatio(patch, 2, 9.0);
     } else {
@@ -189,57 +246,73 @@ export class MacroMapper {
       setRatio(patch, 2, 11.0);
     }
 
-    const dampening = this.macro('Dampening');
-    patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(1.5), secondsToEnvDecay(0.35), dampening);
-    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.35), secondsToEnvDecay(0.12), dampening);
+    // 2. Dampening / Release: decay envelope (fast woodblock to ringing bar)
+    const rel = this.macro('Release', undefined, 0.7);
+    const dampening = this.macro('Dampening', undefined, 1 - rel);
+    patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(2.8), secondsToEnvDecay(0.14), dampening);
+    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.55), secondsToEnvDecay(0.05), dampening);
 
-    const impact = this.macro('Impact Noise');
-    patch.operators[2].level = lerpByte(0x10, 0x60, impact);
-    patch.operators[2].feedback = lerpByte(0x00, 0x70, impact);
+    // 3. Impact Noise / Noise: strike mallet hardness (soft felt to hard hammer)
+    const impact = this.macro('Impact Noise', 'Noise', 0.15);
+    patch.operators[2].level = lerpByte(0x08, 0x88, impact);
+    patch.operators[2].feedback = lerpByte(0x00, 0x88, impact);
 
-    const tail = this.macro('Tail');
+    // 4. Tail / Contour Time: sustain resonance
+    const tail = this.macro('Tail', 'Contour Time', 0.3);
     if (tail > 0) {
-      patch.envelopes[0].decay = lerpByte(patch.envelopes[0].decay, secondsToEnvDecay(3.5), tail);
+      patch.envelopes[0].decay = lerpByte(patch.envelopes[0].decay, secondsToEnvDecay(4.5), tail);
     }
+
+    // 5. Mod Index: strike brightness and harmonic overtone level
+    const modIdx = this.macro('Mod Index', undefined, 0.4);
+    patch.operators[0].level = lerpByte(0x20, 0xa8, modIdx);
+    patch.filter.cutoff = lerpByte(0x88, 0xfc, modIdx);
+
+    // 6. Feedback & Contour Bend: metallic feedback drive & strike deflection
+    const fbk = this.macro('Feedback', undefined, 0.1);
+    patch.operators[0].feedback = lerpByte(0x00, 0x60, fbk);
+    const bend = this.macro('Contour Bend', undefined, 0.5);
+    patch.envelopes[1].amount = lerpByte(0x40, 0xff, bend);
+    const atk = this.macro('Attack', undefined, 0.05);
+    patch.envelopes[0].attack = lerpByte(0x00, secondsToEnvAttack(0.25), atk);
   }
 
   private applyPad(patch: M8Patch) {
-    const wash = this.macro('Wash');
-    patch.envelopes[0].attack = lerpByte(secondsToEnvAttack(0.4), secondsToEnvAttack(2.4), wash);
-    patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(2.5), secondsToEnvDecay(6.0), wash);
-    patch.envelopes[1].attack = lerpByte(secondsToEnvAttack(0.6), secondsToEnvAttack(3.0), wash);
-    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(2.6), secondsToEnvDecay(5.5), wash);
+    // 1. Wash / Attack / Release / Contour Time: pad bloom and decay length
+    const atk = this.macro('Attack', undefined, 0.45);
+    const rel = this.macro('Release', undefined, 0.55);
+    const wash = this.macro('Wash', 'Contour Time', 0.5);
+    patch.envelopes[0].attack = lerpByte(secondsToEnvAttack(0.15), secondsToEnvAttack(3.8), atk * 0.7 + wash * 0.3);
+    patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(1.2), secondsToEnvDecay(7.0), rel * 0.7 + wash * 0.3);
+    patch.envelopes[1].attack = lerpByte(secondsToEnvAttack(0.20), secondsToEnvAttack(4.0), atk * 0.7 + wash * 0.3);
+    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(1.4), secondsToEnvDecay(6.5), rel * 0.7 + wash * 0.3);
 
-    const shimmer = this.macro('Shimmer');
-    // Low (<0.40): Dark & warm analog strings (1:1 warm overtone)
-    // Mid (0.40 - 0.70): Singing vocal formant overtone (3:1 odd harmonic, "Syn-Voix" choir vowel)
-    // High (>0.70): Crystalline glass octave shimmer (2:1)
+    // 2. Shimmer / Noise: singing overtone / vocal formant / glass octave
+    const shimmer = this.macro('Shimmer', 'Noise', 0.2);
     if (shimmer < 0.40) {
       setRatio(patch, 2, 1.0);
-      patch.operators[2].level = lerpByte(0x06, 0x24, shimmer / 0.40);
+      patch.operators[2].level = lerpByte(0x06, 0x30, shimmer / 0.40);
       patch.operators[2].feedback = 0x00;
     } else if (shimmer < 0.70) {
       setRatio(patch, 2, 3.0);
       const t = (shimmer - 0.40) / 0.30;
-      patch.operators[2].level = lerpByte(0x28, 0x48, t);
-      patch.operators[2].feedback = lerpByte(0x00, 0x14, t);
+      patch.operators[2].level = lerpByte(0x28, 0x58, t);
+      patch.operators[2].feedback = lerpByte(0x00, 0x20, t);
     } else {
       setRatio(patch, 2, 2.0);
       const t = (shimmer - 0.70) / 0.30;
-      patch.operators[2].level = lerpByte(0x38, 0x55, t);
-      patch.operators[2].feedback = lerpByte(0x14, 0x3c, t);
+      patch.operators[2].level = lerpByte(0x38, 0x70, t);
+      patch.operators[2].feedback = lerpByte(0x14, 0x48, t);
     }
 
-    const chorus = this.macro('Chorus');
-    patch.mixer.cho = lerpByte(0x40, 0xf0, chorus);
-    patch.lfos[0].amount = lerpByte(0x08, 0x2e, chorus);
-    patch.lfos[1].amount = lerpByte(0x00, 0x48, chorus);
+    // 3. Chorus / Mod Index: stereo ensemble spread & LFO detune
+    const chorus = this.macro('Chorus', 'Mod Index', 0.3);
+    patch.mixer.cho = lerpByte(0x20, 0xfc, chorus);
+    patch.lfos[0].amount = lerpByte(0x04, 0x3e, chorus);
+    patch.lfos[1].amount = lerpByte(0x00, 0x58, chorus);
 
-    // Hollow: Core fundamental vs ethereal shell
-    // Low (<0.35): Full analog body with warm sawtooth feedback on carriers
-    // Mid (0.35 - 0.68): Pure sine vocal choral body (clean vocal tones)
-    // High (>0.68): Ethereal void space (sub-octave 0.50 drone + octave 2.00 glass shell)
-    const hollow = this.macro('Hollow');
+    // 4. Hollow / Contour Bend: core fundamental vs ethereal shell
+    const hollow = this.macro('Hollow', 'Contour Bend', 0.2);
     if (hollow < 0.35) {
       const t = hollow / 0.35;
       setRatio(patch, 1, 1.0);
@@ -271,6 +344,19 @@ export class MacroMapper {
       patch.operators[3].feedback = 0x00;
       patch.filter.cutoff = lerpByte(0x8c, 0xb0, t);
     }
+
+    // 5. Feedback: analog sawtooth warmth
+    const fbk = this.macro('Feedback', undefined, 0.15);
+    if (fbk > 0) {
+      patch.operators[1].feedback = Math.max(patch.operators[1].feedback, lerpByte(0x00, 0x48, fbk));
+      patch.operators[3].feedback = Math.max(patch.operators[3].feedback, lerpByte(0x00, 0x40, fbk));
+    }
+
+    // 6. Ratio: harmonic tilt
+    const ratioNorm = this.macro('Ratio', undefined, 0.2);
+    if (ratioNorm > 0.5) {
+      setRatio(patch, 0, ratioNorm < 0.75 ? 2.0 : 3.0);
+    }
   }
 
   private applyPercussion(
@@ -278,102 +364,121 @@ export class MacroMapper {
     presetIndex: number = this.currentPresetIndex,
     customMacroState?: Record<string, number>
   ) {
-    const getVal = (name: string) => customMacroState ? (customMacroState[name] ?? 0) : this.macro(name);
-    const punch = getVal('Punch');
-    const tone = getVal('Tone');
-    const decay = getVal('Decay');
-    const dirt = getVal('Dirt');
+    const getVal = (name: string, fallback?: string, fallback2?: string) => {
+      if (customMacroState) {
+        if (customMacroState[name] !== undefined) return customMacroState[name];
+        if (fallback && customMacroState[fallback] !== undefined) return customMacroState[fallback];
+        if (fallback2 && customMacroState[fallback2] !== undefined) return customMacroState[fallback2];
+      }
+      return this.macro(name, fallback, 0);
+    };
+
+    const punch = getVal('Punch', 'Snap', 'Contour Bend');
+    const tone = getVal('Tone', 'Ratio');
+    const decay = getVal('Decay', 'Contour Time');
+    const dirt = getVal('Dirt', 'Feedback', 'Noise');
 
     switch (presetIndex) {
       case 0: // KICK
-        // Punch: controls FM modulator intensity and transient click attack
-        patch.operators[2].level = lerpByte(0x40, 0xa8, punch);
-        patch.operators[1].level = lerpByte(0x20, 0x78, punch);
-        patch.operators[0].level = lerpByte(0x18, 0x60, punch);
-        patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.015), secondsToEnvDecay(0.028), punch);
+        patch.operators[2].level = lerpByte(0x20, 0xd0, punch);
+        patch.operators[1].level = lerpByte(0x18, 0x90, punch);
+        patch.operators[0].level = lerpByte(0x10, 0x78, punch);
+        patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.012), secondsToEnvDecay(0.032), punch);
 
-        // Tone: sub carrier fine tuning (45 Hz to 65 Hz) and filter cutoff
-        patch.operators[3].ratioFine = lerpByte(35, 50, tone);
-        patch.filter.cutoff = lerpByte(0x88, 0xec, tone);
+        patch.operators[3].ratioFine = lerpByte(25, 60, tone);
+        patch.filter.cutoff = lerpByte(0x70, 0xfc, tone);
 
-        // Decay: tail duration from short tight punch (0.16s) to long 808 sub boom (1.2s)
-        patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(0.16), secondsToEnvDecay(1.2), decay);
+        patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(0.08), secondsToEnvDecay(1.8), decay);
 
-        // Dirt: drives sub carrier feedback for warm analog drive and tape saturation
-        patch.operators[3].feedback = lerpByte(0x00, 0x48, dirt);
-        patch.operators[0].feedback = lerpByte(0x10, 0x40, dirt);
+        patch.operators[3].feedback = lerpByte(0x00, 0x60, dirt);
+        patch.operators[0].feedback = lerpByte(0x10, 0x55, dirt);
         break;
 
       case 1: // SNARE
-        // Punch: initial stick impact and drum body pop
-        patch.operators[2].level = lerpByte(0x18, 0x68, punch);
-        patch.operators[3].level = lerpByte(0x88, 0xd0, punch);
+        patch.operators[2].level = lerpByte(0x10, 0x88, punch);
+        patch.operators[3].level = lerpByte(0x78, 0xe0, punch);
 
-        // Tone: filter cutoff shaping the snare wire brightness
-        patch.filter.cutoff = lerpByte(0x90, 0xf0, tone);
+        patch.filter.cutoff = lerpByte(0x78, 0xfc, tone);
 
-        // Decay: snare wire tail and release (0.12s tight crack to 0.55s loose ring)
-        patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(0.12), secondsToEnvDecay(0.55), decay);
+        patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(0.06), secondsToEnvDecay(0.85), decay);
 
-        // Dirt: wire rattle level and inharmonic noise bite
-        patch.operators[1].level = lerpByte(0x60, 0xd8, dirt);
-        patch.operators[0].level = lerpByte(0x18, 0x58, dirt);
+        patch.operators[1].level = lerpByte(0x40, 0xf0, dirt);
+        patch.operators[0].level = lerpByte(0x10, 0x70, dirt);
         break;
 
       case 2: // CLOSED HAT
-        // Punch: initial metallic attack strike
-        patch.operators[1].level = lerpByte(0x40, 0xb0, punch);
-        patch.operators[0].level = lerpByte(0x20, 0x70, punch);
+        patch.operators[1].level = lerpByte(0x30, 0xd0, punch);
+        patch.operators[0].level = lerpByte(0x18, 0x88, punch);
 
-        // Tone: highpass cutoff frequency (crispness)
-        patch.filter.cutoff = lerpByte(0xa8, 0xee, tone);
+        patch.filter.cutoff = lerpByte(0x90, 0xfc, tone);
 
-        // Decay: micro-chick (0.025s) to tight tick (0.09s)
-        patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(0.025), secondsToEnvDecay(0.09), decay);
+        patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(0.015), secondsToEnvDecay(0.18), decay);
 
-        // Dirt: metallic inharmonic sizzle
-        patch.operators[0].feedback = lerpByte(0x10, 0x70, dirt);
-        patch.operators[2].feedback = lerpByte(0x10, 0x60, dirt);
+        patch.operators[0].feedback = lerpByte(0x10, 0x88, dirt);
+        patch.operators[2].feedback = lerpByte(0x10, 0x78, dirt);
         break;
 
       case 3: // OPEN HAT
-        // Punch: initial cymbal attack strike brightness
-        patch.envelopes[1].amount = lerpByte(0x10, 0x60, punch);
-        patch.operators[1].level = lerpByte(0x50, 0xb8, punch);
+        patch.envelopes[1].amount = lerpByte(0x10, 0x78, punch);
+        patch.operators[1].level = lerpByte(0x38, 0xd8, punch);
 
-        // Tone: highpass shimmer cutoff
-        patch.filter.cutoff = lerpByte(0x98, 0xe4, tone);
+        patch.filter.cutoff = lerpByte(0x80, 0xf4, tone);
 
-        // Decay: open cymbal sizzle ring (0.20s to 1.2s)
-        patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(0.20), secondsToEnvDecay(1.2), decay);
+        patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(0.15), secondsToEnvDecay(2.0), decay);
 
-        // Dirt: metallic feedback resonance and wash
-        patch.operators[0].feedback = lerpByte(0x20, 0x88, dirt);
-        patch.operators[2].feedback = lerpByte(0x20, 0x78, dirt);
+        patch.operators[0].feedback = lerpByte(0x10, 0xa0, dirt);
+        patch.operators[2].feedback = lerpByte(0x10, 0x90, dirt);
         break;
     }
   }
 
   private applyVintageLead(patch: M8Patch) {
-    // Timbre sweeps from a soft warm tone to a stacked, fed-back analog lead.
-    const timbre = this.macro('Timbre');
-    patch.operators[0].level = lerpByte(0x40, 0x88, timbre);
-    patch.operators[1].level = lerpByte(0x20, 0x58, timbre);
-    patch.operators[3].feedback = lerpByte(0x14, 0x58, timbre);
+    // 1. Timbre / Ratio: analog oscillator harmonics and feedback drive
+    const timbre = this.macro('Timbre', 'Ratio', 0.3);
+    patch.operators[0].level = lerpByte(0x20, 0xb0, timbre);
+    patch.operators[1].level = lerpByte(0x10, 0x78, timbre);
+    patch.operators[3].feedback = lerpByte(0x08, 0x78, timbre);
 
-    patch.filter.cutoff = lerpByte(0x60, 0xec, this.macro('Filter Cutoff'));
+    const ratioNorm = this.macro('Ratio', undefined, 0.25);
+    if (ratioNorm < 0.25) {
+      setRatio(patch, 0, 1.0);
+    } else if (ratioNorm < 0.50) {
+      setRatio(patch, 0, 1.5);
+    } else if (ratioNorm < 0.75) {
+      setRatio(patch, 0, 2.0);
+    } else {
+      setRatio(patch, 0, 3.0);
+    }
 
-    const filterEnv = this.macro('Filter Envelope');
-    patch.envelopes[1].amount = lerpByte(0x00, 0x68, filterEnv);
-    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.3), secondsToEnvDecay(1.8), filterEnv);
+    // 2. Filter Cutoff / Mod Index: sweeping lowpass filter & resonance
+    const cutoff = this.macro('Filter Cutoff', 'Mod Index', 0.5);
+    patch.filter.cutoff = lerpByte(0x38, 0xfc, cutoff);
+    patch.filter.res = lerpByte(0x18, 0x60, cutoff);
 
-    // Analog Slop: Boards of Canada worn cassette tape wow & flutter
-    const slop = this.macro('Analog Slop');
-    patch.lfos[0].amount = lerpByte(0x00, 0x03, slop);
-    patch.lfos[0].freq = lerpByte(0x38, 0x54, slop);
-    // Cutoff tape flutter in sync with tape drift
-    patch.lfos[1].amount = lerpByte(0x00, 0x18, slop);
-    patch.lfos[1].freq = lerpByte(0x30, 0x4c, slop);
+    // 3. Filter Envelope & Contour Bend / Time
+    const envAmt = this.macro('Filter Envelope', 'Contour Bend', 0.5);
+    const envTime = this.macro('Contour Time', undefined, 0.4);
+    patch.envelopes[1].amount = lerpByte(0x00, 0x88, envAmt);
+    patch.envelopes[1].decay = lerpByte(secondsToEnvDecay(0.12), secondsToEnvDecay(2.6), envTime * 0.7 + envAmt * 0.3);
+
+    // 4. Analog Slop / Feedback: Boards of Canada cassette wow & flutter
+    const slop = this.macro('Analog Slop', 'Feedback', 0.2);
+    patch.lfos[0].amount = lerpByte(0x00, 0x1c, slop);
+    patch.lfos[0].freq = lerpByte(0x28, 0x60, slop);
+    patch.lfos[1].amount = lerpByte(0x00, 0x38, slop);
+    patch.lfos[1].freq = lerpByte(0x20, 0x58, slop);
+
+    // 5. Envelope (Attack & Release)
+    const atk = this.macro('Attack', undefined, 0.08);
+    const rel = this.macro('Release', undefined, 0.7);
+    patch.envelopes[0].attack = lerpByte(0x00, secondsToEnvAttack(0.60), atk);
+    patch.envelopes[0].decay = lerpByte(secondsToEnvDecay(0.35), secondsToEnvDecay(3.8), rel);
+
+    // 6. Noise: vintage jitter & breath
+    const noise = this.macro('Noise', undefined, 0);
+    if (noise > 0) {
+      patch.operators[1].feedback = lerpByte(0x00, 0x40, noise);
+    }
   }
 
   /**
